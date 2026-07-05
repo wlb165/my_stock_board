@@ -1,0 +1,78 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>上市公司资产负债表看板</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">资产负债表</p>
+          <h1>上市公司资产负债表看板</h1>
+        </div>
+        <form id="stock-form" class="stock-form">
+          <input id="stock-code" value="002594" aria-label="股票代码" maxlength="6" />
+          <input id="stock-name" value="比亚迪" aria-label="公司名称" />
+          <button type="submit">刷新</button>
+        </form>
+      </header>
+
+      <nav class="tabs" aria-label="看板页签">
+        <button class="tab active" type="button">图表信息</button>
+        <button class="tab" type="button">基本信息</button>
+      </nav>
+
+      <section class="board">
+        <div class="period-actions">
+          <button id="current-period" type="button">当期数据</button>
+          <button id="prev-period" type="button">上一期</button>
+          <button id="next-period" type="button">下一期</button>
+        </div>
+
+        <div id="error" class="error" hidden></div>
+        <div id="loading" class="loading">正在读取财报数据...</div>
+
+        <section id="chart-panel" class="chart-panel" hidden>
+          <div class="chart-title">
+            <h2 id="chart-heading">资产负债表</h2>
+            <p id="report-date"></p>
+          </div>
+
+          <div class="summary-grid">
+            <div>
+              <span>资产总计</span>
+              <strong id="total-assets">--</strong>
+            </div>
+            <div>
+              <span>负债合计</span>
+              <strong id="total-liabilities">--</strong>
+            </div>
+            <div>
+              <span>所有者权益</span>
+              <strong id="equity">--</strong>
+            </div>
+            <div>
+              <span>资产负债率</span>
+              <strong id="debt-ratio">--</strong>
+            </div>
+          </div>
+
+          <div class="chart-wrap">
+            <div id="y-axis" class="y-axis"></div>
+            <div id="bars" class="bars" aria-label="资产负债项目柱状图"></div>
+          </div>
+          <div class="legend">
+            <span><i class="asset-dot"></i>资产项目</span>
+            <span><i class="liability-dot"></i>负债项目</span>
+            <span>单位：亿元</span>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

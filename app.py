@@ -1,0 +1,197 @@
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import Request, urlopen
+import json
+
+
+ROOT = Path(__file__).resolve().parent
+STATIC_DIR = ROOT / "static"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+SINA_FINANCE_URL = "https://quotes.sina.cn/cn/api/openapi.php/CompanyFinanceService.getFinanceReport2022"
+
+
+ASSET_GROUPS = [
+    ("现金", ["货币资金"]),
+    ("应收款", ["应收账款", "应收票据", "应收款项融资"]),
+    ("预付款", ["预付款项"]),
+    ("存货", ["存货"]),
+    ("其它流动", ["其他流动资产"]),
+    ("长期投资", ["长期股权投资", "其他权益工具投资", "其他非流动金融资产"]),
+    ("固定资产", [("first", ["固定资产净额", "固定资产及清理合计", "固定资产净值", "固定资产"]), "在建工程"]),
+    ("无形&商誉", ["无形资产", "商誉"]),
+    ("其它固定", ["其他非流动资产"]),
+]
+
+LIABILITY_GROUPS = [
+    ("短期借款", ["短期借款"]),
+    ("应付款", ["应付账款", "应付票据"]),
+    ("预收款", ["预收款项", "合同负债"]),
+    ("薪酬&税", ["应付职工薪酬", "应交税费"]),
+    ("其它流动", ["其他流动负债"]),
+    ("长期借款", ["长期借款"]),
+    ("其它非流动", ["应付债券", "租赁负债", "长期应付款", "其他非流动负债"]),
+]
+
+
+def parse_number(value):
+    if value in (None, ""):
+        return 0.0
+    try:
+        return float(str(value).replace(",", ""))
+    except ValueError:
+        return 0.0
+
+
+def to_yi(value):
+    return round(parse_number(value) / 100000000, 2)
+
+
+def field_value(items, field):
+    if isinstance(field, tuple) and field[0] == "first":
+        for name in field[1]:
+            value = parse_number(items.get(name))
+            if value:
+                return value
+        return 0.0
+    return parse_number(items.get(field))
+
+
+def sum_fields(items, names):
+    return sum(field_value(items, name) for name in names)
+
+
+def grouped_items(items, groups):
+    return [{"label": label, "value": to_yi(sum_fields(items, names))} for label, names in groups]
+
+
+def normalize_sina_reports(data, limit):
+    report_list = (
+        data.get("result", {})
+        .get("data", {})
+        .get("report_list", {})
+        or {}
+    )
+    reports = []
+    for period in sorted(report_list.keys(), reverse=True)[:limit]:
+        rows = report_list[period].get("data", []) or []
+        items = {
+            row.get("item_title"): parse_number(row.get("item_value"))
+            for row in rows
+            if row.get("item_title") and row.get("item_value") not in (None, "")
+        }
+        reports.append(
+            {
+                "report_date": f"{period[:4]}-{period[4:6]}-{period[6:8]}",
+                "items": items,
+            }
+        )
+    return reports
+
+
+def stock_prefix(code):
+    return "sh" if code.startswith(("6", "9")) else "sz"
+
+
+def should_redirect_to_static_index(path):
+    return path == "/"
+
+
+def fetch_balance_sheet(code, limit=8):
+    paper_code = f"{stock_prefix(code)}{code}"
+    params = urlencode(
+        {
+            "paperCode": paper_code,
+            "source": "fzb",
+            "type": "0",
+            "page": "1",
+            "num": str(limit),
+        }
+    )
+    request = Request(f"{SINA_FINANCE_URL}?{params}", headers={"User-Agent": UA})
+    with urlopen(request, timeout=15) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    reports = normalize_sina_reports(data, limit)
+    if not reports:
+        raise ValueError("未取到资产负债表数据")
+    return reports
+
+
+def build_dashboard_payload(code, name, reports, index):
+    safe_index = max(0, min(index, len(reports) - 1))
+    current = reports[safe_index]
+    items = current["items"]
+    assets_total = parse_number(items.get("资产总计"))
+    liabilities_total = parse_number(items.get("负债合计"))
+    equity_total = parse_number(items.get("所有者权益合计"))
+    if not equity_total and assets_total and liabilities_total:
+        equity_total = assets_total - liabilities_total
+    debt_ratio = (liabilities_total / assets_total * 100) if assets_total else 0
+
+    return {
+        "company": {"code": code, "name": name or code},
+        "period": {
+            "current": current["report_date"],
+            "index": safe_index,
+            "total": len(reports),
+            "has_previous": safe_index + 1 < len(reports),
+            "has_next": safe_index > 0,
+        },
+        "assets": grouped_items(items, ASSET_GROUPS),
+        "liabilities": grouped_items(items, LIABILITY_GROUPS),
+        "summary": {
+            "total_assets_yi": to_yi(assets_total),
+            "total_liabilities_yi": to_yi(liabilities_total),
+            "equity_yi": to_yi(equity_total),
+            "debt_ratio_pct": round(debt_ratio, 2),
+        },
+    }
+
+
+class StockBoardHandler(SimpleHTTPRequestHandler):
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/balance-sheet":
+            self.handle_balance_sheet(parsed.query)
+            return
+        if should_redirect_to_static_index(parsed.path):
+            self.send_response(302)
+            self.send_header("Location", "/static/index.html")
+            self.end_headers()
+            return
+        super().do_GET()
+
+    def translate_path(self, path):
+        if path.startswith("/static/"):
+            return str(ROOT / path.lstrip("/"))
+        return str(STATIC_DIR / "index.html")
+
+    def handle_balance_sheet(self, query):
+        params = parse_qs(query)
+        code = params.get("code", ["002594"])[0].strip()
+        name = params.get("name", ["比亚迪"])[0].strip()
+        index = int(params.get("index", ["0"])[0] or 0)
+        try:
+            reports = fetch_balance_sheet(code)
+            payload = build_dashboard_payload(code, name, reports, index)
+            self.write_json(payload)
+        except Exception as exc:
+            self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)
+
+    def write_json(self, payload, status=200):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def main():
+    server = ThreadingHTTPServer(("127.0.0.1", 8765), StockBoardHandler)
+    print("资产负债表看板: http://127.0.0.1:8765")
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
