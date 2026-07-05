@@ -284,6 +284,54 @@ h1 {
   background: var(--red);
 }
 
+.line-dot {
+  background: var(--red);
+}
+
+.trend-chart-wrap {
+  width: 100%;
+  min-height: 430px;
+  overflow-x: auto;
+}
+
+#trend-svg {
+  display: block;
+  width: 100%;
+  min-width: 980px;
+  height: 430px;
+}
+
+.axis-line,
+.grid-line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.axis-text {
+  fill: #666;
+  font-size: 13px;
+}
+
+.trend-bar {
+  fill: var(--blue);
+}
+
+.trend-line {
+  fill: none;
+  stroke: var(--red);
+  stroke-width: 3;
+}
+
+.trend-point {
+  fill: var(--red);
+}
+
+.trend-value {
+  fill: #222;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 @media (max-width: 820px) {
   .shell {
     width: 100%;

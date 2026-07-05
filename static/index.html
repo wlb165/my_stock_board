@@ -21,12 +21,13 @@
       </header>
 
       <nav class="tabs" aria-label="看板页签">
-        <button class="tab active" type="button">图表信息</button>
-        <button class="tab" type="button">基本信息</button>
+        <button class="tab active" type="button" data-view="balance">资产负债表</button>
+        <button class="tab" type="button" data-view="trend">市值与营收</button>
+        <button class="tab" type="button" data-view="basic">基本信息</button>
       </nav>
 
       <section class="board">
-        <div class="period-actions">
+        <div id="period-actions" class="period-actions">
           <button id="current-period" type="button">当期数据</button>
           <button id="prev-period" type="button">上一期</button>
           <button id="next-period" type="button">下一期</button>
@@ -67,6 +68,41 @@
           <div class="legend">
             <span><i class="asset-dot"></i>资产项目</span>
             <span><i class="liability-dot"></i>负债项目</span>
+            <span>单位：亿元</span>
+          </div>
+        </section>
+
+        <section id="trend-panel" class="trend-panel" hidden>
+          <div class="chart-title">
+            <h2 id="trend-heading">公司市值与年化营收趋势</h2>
+            <p id="trend-subtitle">最近 32 个报告期</p>
+          </div>
+
+          <div class="summary-grid trend-summary">
+            <div>
+              <span>最新年化营收</span>
+              <strong id="latest-revenue">--</strong>
+            </div>
+            <div>
+              <span>估算总市值</span>
+              <strong id="latest-market-cap">--</strong>
+            </div>
+            <div>
+              <span>最新报告期</span>
+              <strong id="latest-trend-date">--</strong>
+            </div>
+            <div>
+              <span>数据点</span>
+              <strong id="trend-point-count">--</strong>
+            </div>
+          </div>
+
+          <div class="trend-chart-wrap">
+            <svg id="trend-svg" role="img" aria-label="市值与年化营收趋势图"></svg>
+          </div>
+          <div class="legend">
+            <span><i class="asset-dot"></i>年化总营收</span>
+            <span><i class="line-dot"></i>估算总市值</span>
             <span>单位：亿元</span>
           </div>
         </section>

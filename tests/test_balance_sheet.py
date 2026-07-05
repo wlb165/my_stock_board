@@ -1,12 +1,66 @@
 import unittest
 
-from app import build_dashboard_payload, should_redirect_to_static_index
+from app import (
+    annualization_factor,
+    build_dashboard_payload,
+    build_revenue_market_cap_payload,
+    closest_close_on_or_before,
+    should_redirect_to_static_index,
+)
 
 
 class BalanceSheetDashboardTest(unittest.TestCase):
     def test_root_request_redirects_to_static_index(self):
         self.assertTrue(should_redirect_to_static_index("/"))
         self.assertFalse(should_redirect_to_static_index("/static/index.html"))
+
+    def test_revenue_annualization_uses_report_period_factor(self):
+        self.assertEqual(annualization_factor("2024-03-31"), 4)
+        self.assertEqual(annualization_factor("2024-06-30"), 2)
+        self.assertEqual(annualization_factor("2024-09-30"), 4 / 3)
+        self.assertEqual(annualization_factor("2024-12-31"), 1)
+
+    def test_closest_close_uses_last_trade_before_report_date(self):
+        prices = [
+            {"date": "2024-03-28", "close": 10.0},
+            {"date": "2024-04-01", "close": 12.0},
+        ]
+
+        self.assertEqual(closest_close_on_or_before(prices, "2024-03-31"), 10.0)
+
+    def test_builds_revenue_market_cap_payload(self):
+        reports = [
+            {
+                "report_date": "2024-03-31",
+                "items": {"\u8425\u4e1a\u603b\u6536\u5165": 1000000000},
+            },
+            {
+                "report_date": "2024-06-30",
+                "items": {"\u8425\u4e1a\u6536\u5165": 3000000000},
+            },
+            {
+                "report_date": "2024-09-30",
+                "items": {"\u8425\u4e1a\u603b\u6536\u5165": 6000000000},
+            },
+            {
+                "report_date": "2024-12-31",
+                "items": {"\u8425\u4e1a\u603b\u6536\u5165": 10000000000},
+            },
+        ]
+        prices = [
+            {"date": "2024-03-29", "close": 10.0},
+            {"date": "2024-06-28", "close": 20.0},
+            {"date": "2024-09-30", "close": 30.0},
+            {"date": "2024-12-31", "close": 40.0},
+        ]
+
+        payload = build_revenue_market_cap_payload("002594", "\u6bd4\u4e9a\u8fea", reports, prices, 2.5)
+
+        self.assertEqual(payload["points"][0]["annualized_revenue_yi"], 40.0)
+        self.assertEqual(payload["points"][1]["annualized_revenue_yi"], 60.0)
+        self.assertEqual(payload["points"][2]["annualized_revenue_yi"], 80.0)
+        self.assertEqual(payload["points"][3]["annualized_revenue_yi"], 100.0)
+        self.assertEqual(payload["points"][3]["market_cap_yi"], 100.0)
 
     def test_fixed_asset_uses_sina_net_amount_and_construction_in_progress(self):
         reports = [

@@ -27,6 +27,15 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertNotIn("maxValue / 500", script)
         self.assertIn("niceChartMax", script)
 
+    def test_revenue_market_cap_view_is_wired(self):
+        html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('data-view="trend"', html)
+        self.assertIn('id="trend-svg"', html)
+        self.assertIn("/api/revenue-market-cap", script)
+        self.assertIn("drawTrendChart", script)
+
 
 if __name__ == "__main__":
     unittest.main()
