@@ -5,35 +5,14 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 import json
-import socket
 import time
-
-try:
-    from mootdx.quotes import Quotes
-except Exception:
-    Quotes = None
 
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 SINA_FINANCE_URL = "https://quotes.sina.cn/cn/api/openapi.php/CompanyFinanceService.getFinanceReport2022"
-SINA_KLINE_URL = "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData"
 EASTMONEY_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q="
-TDX_SERVERS = [
-    ("119.97.185.59", 7709),
-    ("124.70.133.119", 7709),
-    ("116.205.183.150", 7709),
-    ("123.60.73.44", 7709),
-    ("116.205.163.254", 7709),
-    ("121.36.225.169", 7709),
-    ("123.60.70.228", 7709),
-    ("124.71.9.153", 7709),
-    ("110.41.147.114", 7709),
-    ("124.71.187.122", 7709),
-]
-
 
 ASSET_GROUPS = [
     ("现金", ["货币资金"]),
@@ -150,21 +129,37 @@ def closest_close_on_or_before(prices, report_date):
     return parse_number(ordered[index].get("close"))
 
 
-def build_revenue_market_cap_payload(code, name, reports, prices, total_shares_yi):
-    points = []
+def sample_weekly_prices(prices):
+    weekly = {}
+    for item in sorted(prices, key=lambda row: row["date"]):
+        close = parse_number(item.get("close"))
+        if not close:
+            continue
+        date = item["date"]
+        week_key = datetime.strptime(date, "%Y-%m-%d").isocalendar()[:2]
+        weekly[week_key] = {"date": date, "price": round(close, 2)}
+    return list(weekly.values())
+
+
+def build_revenue_price_payload(code, name, reports, prices):
+    revenue_points = []
     for report in sorted(reports, key=lambda item: item["report_date"]):
         revenue = revenue_value(report["items"])
         if not revenue:
             continue
-        close = closest_close_on_or_before(prices, report["report_date"])
-        points.append(
+        revenue_points.append(
             {
                 "date": report["report_date"],
                 "annualized_revenue_yi": round(to_yi(revenue) * annualization_factor(report["report_date"]), 2),
-                "market_cap_yi": round(close * total_shares_yi, 2) if close and total_shares_yi else 0.0,
             }
         )
-    return {"company": {"code": code, "name": name or code}, "points": points}
+    return {
+        "company": {"code": code, "name": name or code},
+        "revenue_points": revenue_points,
+        "price_points": sample_weekly_prices(prices),
+        "price_source": "eastmoney_qfq",
+        "price_adjustment": "front_adjusted",
+    }
 
 
 def stock_prefix(code):
@@ -173,6 +168,10 @@ def stock_prefix(code):
 
 def should_redirect_to_static_index(path):
     return path == "/"
+
+
+def is_revenue_price_path(path):
+    return path in ("/api/revenue-price", "/api/revenue-market-cap")
 
 
 def fetch_balance_sheet(code, limit=8):
@@ -217,76 +216,7 @@ def fetch_income_reports(code, limit=32):
     return fetch_sina_financial_report(code, "lrb", limit)
 
 
-def fetch_current_quote(code):
-    prefixed = f"{stock_prefix(code)}{code}"
-    request = Request(TENCENT_QUOTE_URL + prefixed, headers={"User-Agent": UA})
-    data = read_url(request, timeout=10, encoding="gbk")
-    if '"' not in data:
-        raise ValueError("未取到腾讯行情数据")
-    vals = data.split('"')[1].split("~")
-    price = parse_number(vals[3]) if len(vals) > 3 else 0.0
-    mcap_yi = parse_number(vals[44]) if len(vals) > 44 else 0.0
-    return {"price": price, "mcap_yi": mcap_yi, "total_shares_yi": (mcap_yi / price) if price else 0.0}
-
-
-def probe_tdx_server(ip, port, timeout=2.0):
-    try:
-        with socket.create_connection((ip, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
-
-
-def tdx_client():
-    if Quotes is None:
-        raise RuntimeError("mootdx is not installed")
-    for server in TDX_SERVERS:
-        if probe_tdx_server(*server):
-            return Quotes.factory(market="std", server=server)
-    return Quotes.factory(market="std", bestip=True)
-
-
-def normalize_trade_date(value):
-    text = str(value)[:10]
-    if len(text) == 8 and text.isdigit():
-        return f"{text[:4]}-{text[4:6]}-{text[6:]}"
-    return text
-
-
-def fetch_tdx_daily_closes(code, start_date, end_date):
-    client = tdx_client()
-    rows = client.bars(symbol=code, frequency=9, offset=3000)
-    prices = []
-    for _, row in rows.iterrows():
-        date = normalize_trade_date(row.get("date") or row.get("datetime"))
-        close = parse_number(row.get("close"))
-        if start_date <= date <= end_date and close:
-            prices.append({"date": date, "close": close})
-    return prices
-
-
-def fetch_sina_daily_closes(code, start_date, end_date):
-    params = urlencode(
-        {
-            "symbol": f"{stock_prefix(code)}{code}",
-            "scale": "240",
-            "ma": "no",
-            "datalen": "3000",
-        }
-    )
-    request = Request(
-        f"{SINA_KLINE_URL}?{params}",
-        headers={"User-Agent": UA, "Referer": "https://finance.sina.com.cn/"},
-    )
-    rows = json.loads(read_url(request, timeout=15))
-    return [
-        {"date": row["day"], "close": parse_number(row.get("close"))}
-        for row in rows
-        if start_date <= row.get("day", "") <= end_date and parse_number(row.get("close"))
-    ]
-
-
-def fetch_eastmoney_daily_closes(code, start_date, end_date):
+def fetch_eastmoney_front_adjusted_daily_closes(code, start_date, end_date):
     market = "1" if code.startswith(("6", "9")) else "0"
     params = urlencode(
         {
@@ -313,19 +243,17 @@ def fetch_eastmoney_daily_closes(code, start_date, end_date):
     return prices
 
 
-def fetch_daily_closes(code, start_date, end_date):
-    errors = []
-    for fetcher in (fetch_tdx_daily_closes, fetch_sina_daily_closes, fetch_eastmoney_daily_closes):
-        try:
-            prices = fetcher(code, start_date, end_date)
-            if prices:
-                return prices
-        except Exception as exc:
-            errors.append(f"{fetcher.__name__}: {exc}")
-    raise RuntimeError("; ".join(errors) or "No daily close data")
+def fetch_front_adjusted_daily_closes(code, start_date, end_date):
+    try:
+        prices = fetch_eastmoney_front_adjusted_daily_closes(code, start_date, end_date)
+    except Exception as exc:
+        raise RuntimeError(f"eastmoney_qfq source failed: {exc}") from exc
+    if not prices:
+        raise RuntimeError("eastmoney_qfq source returned no daily close data")
+    return prices
 
 
-def fetch_revenue_market_cap(code, name, limit=32):
+def fetch_revenue_price(code, name, limit=32, today=None):
     try:
         reports = fetch_income_reports(code, limit)
     except Exception as exc:
@@ -334,16 +262,14 @@ def fetch_revenue_market_cap(code, name, limit=32):
         raise ValueError("未取到利润表数据")
     first_report_date = min(report["report_date"] for report in reports)
     start_date = (datetime.strptime(first_report_date, "%Y-%m-%d") - timedelta(days=10)).strftime("%Y-%m-%d")
-    end_date = max(report["report_date"] for report in reports)
+    today = today or datetime.now().strftime("%Y-%m-%d")
+    end_date = today
     try:
-        quote = fetch_current_quote(code)
-    except Exception as exc:
-        raise RuntimeError(f"current quote source failed: {exc}") from exc
-    try:
-        prices = fetch_daily_closes(code, start_date, end_date)
+        prices = fetch_front_adjusted_daily_closes(code, start_date, end_date)
+        prices = [item for item in prices if item.get("date", "") < today]
     except Exception as exc:
         raise RuntimeError(f"daily close source failed: {exc}") from exc
-    return build_revenue_market_cap_payload(code, name, reports, prices, quote["total_shares_yi"])
+    return build_revenue_price_payload(code, name, reports, prices)
 
 
 def build_dashboard_payload(code, name, reports, index):
@@ -383,8 +309,8 @@ class StockBoardHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/balance-sheet":
             self.handle_balance_sheet(parsed.query)
             return
-        if parsed.path == "/api/revenue-market-cap":
-            self.handle_revenue_market_cap(parsed.query)
+        if is_revenue_price_path(parsed.path):
+            self.handle_revenue_price(parsed.query)
             return
         if should_redirect_to_static_index(parsed.path):
             self.send_response(302)
@@ -410,12 +336,12 @@ class StockBoardHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)
 
-    def handle_revenue_market_cap(self, query):
+    def handle_revenue_price(self, query):
         params = parse_qs(query)
         code = params.get("code", ["002594"])[0].strip()
         name = params.get("name", ["比亚迪"])[0].strip()
         try:
-            payload = fetch_revenue_market_cap(code, name)
+            payload = fetch_revenue_price(code, name)
             self.write_json(payload)
         except Exception as exc:
             self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)

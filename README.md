@@ -1,21 +1,16 @@
 # A Stock Balance Sheet Dashboard
 
-## Revenue and Market Cap Trend
+## Revenue and Stock Price Trend
 
-- The trend board shows annualized revenue and estimated market cap.
+- The trend board shows annualized revenue and front-adjusted stock price.
 - Annualized revenue uses quarterly reports:
   - Q1 revenue x 4
   - Half-year revenue x 2
   - Q3 revenue x 4 / 3
   - Annual revenue x 1
-- Historical market cap is estimated from daily close price and current total shares.
-- Daily close source priority: Tongdaxin/mootdx, Sina K-line, Eastmoney K-line.
+- Historical stock price is sampled weekly through the latest complete trading day, using the last available trading close in each week.
+- Daily close source: Eastmoney front-adjusted K-line (`fqt=1`) only, so the trend never mixes adjusted and unadjusted prices.
 
-Tongdaxin data needs `mootdx`. Without it, the app falls back to HTTP K-line sources.
-
-```bash
-pip install mootdx
-```
 
 本项目是一个本地 A 股上市公司资产负债表看板。
 

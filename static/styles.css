@@ -138,7 +138,7 @@ h1 {
 
 .chart-title {
   text-align: center;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 
 .chart-title h2 {
@@ -156,7 +156,7 @@ h1 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  margin: 0 auto 26px;
+  margin: 0 auto 20px;
   max-width: 860px;
 }
 
@@ -290,46 +290,102 @@ h1 {
 
 .trend-chart-wrap {
   width: 100%;
-  min-height: 430px;
+  min-height: 520px;
   overflow-x: auto;
+  border: 1px solid #eef1f4;
+  border-radius: 6px;
+  background: #fff;
 }
 
 #trend-svg {
   display: block;
   width: 100%;
-  min-width: 980px;
-  height: 430px;
+  min-width: 1120px;
+  height: 520px;
 }
 
 .axis-line,
 .grid-line {
-  stroke: var(--line);
+  stroke: #e9edf2;
   stroke-width: 1;
 }
 
 .axis-text {
-  fill: #666;
+  fill: #667085;
   font-size: 13px;
 }
 
 .trend-bar {
-  fill: var(--blue);
+  fill: #4aaee8;
+  opacity: 0.42;
 }
 
 .trend-line {
   fill: none;
   stroke: var(--red);
-  stroke-width: 3;
+  stroke-width: 3.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
 
-.trend-point {
+.trend-point-marker {
+  fill: #fff;
+  stroke: var(--red);
+  stroke-width: 2;
+}
+
+.trend-point-marker.latest {
   fill: var(--red);
+  stroke: #fff;
+  stroke-width: 2.5;
 }
 
 .trend-value {
   fill: #222;
   font-size: 12px;
   font-weight: 700;
+}
+.year-guide {
+  stroke: #f1f3f6;
+  stroke-width: 1;
+}
+
+.year-label {
+  fill: #707a86;
+  font-size: 12px;
+}
+
+.revenue-axis {
+  stroke: #4aaee8;
+}
+
+.revenue-tick,
+.revenue-axis-title {
+  fill: #2f8ec5;
+}
+
+.price-axis {
+  stroke: var(--red);
+}
+
+.price-tick,
+.price-axis-title,
+.latest-price-label {
+  fill: var(--red);
+}
+
+.revenue-axis-title,
+.price-axis-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.latest-price-label {
+  font-size: 14px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 4px;
 }
 
 @media (max-width: 820px) {

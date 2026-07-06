@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
@@ -22,7 +22,7 @@
 
       <nav class="tabs" aria-label="看板页签">
         <button class="tab active" type="button" data-view="balance">资产负债表</button>
-        <button class="tab" type="button" data-view="trend">市值与营收</button>
+        <button class="tab" type="button" data-view="trend">股价与营收</button>
         <button class="tab" type="button" data-view="basic">基本信息</button>
       </nav>
 
@@ -74,8 +74,8 @@
 
         <section id="trend-panel" class="trend-panel" hidden>
           <div class="chart-title">
-            <h2 id="trend-heading">公司市值与年化营收趋势</h2>
-            <p id="trend-subtitle">最近 32 个报告期</p>
+            <h2 id="trend-heading">公司股价与年化营收趋势</h2>
+            <p id="trend-subtitle">最近 32 个报告期；股价按周采样至最近完整交易日</p>
           </div>
 
           <div class="summary-grid trend-summary">
@@ -84,8 +84,8 @@
               <strong id="latest-revenue">--</strong>
             </div>
             <div>
-              <span>估算总市值</span>
-              <strong id="latest-market-cap">--</strong>
+              <span>最新股价</span>
+              <strong id="latest-price">--</strong>
             </div>
             <div>
               <span>最新报告期</span>
@@ -98,12 +98,12 @@
           </div>
 
           <div class="trend-chart-wrap">
-            <svg id="trend-svg" role="img" aria-label="市值与年化营收趋势图"></svg>
+            <svg id="trend-svg" role="img" aria-label="股价与年化营收趋势图"></svg>
           </div>
           <div class="legend">
             <span><i class="asset-dot"></i>年化总营收</span>
-            <span><i class="line-dot"></i>估算总市值</span>
-            <span>单位：亿元</span>
+            <span><i class="line-dot"></i>东财前复权股价</span>
+            <span>营收单位：亿元；股价单位：元</span>
           </div>
         </section>
       </section>

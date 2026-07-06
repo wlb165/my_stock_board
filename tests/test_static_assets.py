@@ -27,14 +27,23 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertNotIn("maxValue / 500", script)
         self.assertIn("niceChartMax", script)
 
-    def test_revenue_market_cap_view_is_wired(self):
+    def test_revenue_price_view_is_wired(self):
         html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
         script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn('data-view="trend"', html)
         self.assertIn('id="trend-svg"', html)
-        self.assertIn("/api/revenue-market-cap", script)
+        self.assertIn("\u80a1\u4ef7\u4e0e\u8425\u6536", html)
+        self.assertIn("/api/revenue-price", script)
+        self.assertIn("price_points", script)
+        self.assertIn("revenue_points", script)
+        self.assertIn("Content-Type", script)
+        self.assertIn("\u6700\u8fd1\u5b8c\u6574\u4ea4\u6613\u65e5", html)
         self.assertIn("drawTrendChart", script)
+        self.assertIn("latest-price-label", script)
+        self.assertIn("trend-point-marker", script)
+        self.assertIn("revenue-axis-title", script)
+        self.assertIn("price-axis-title", script)
 
 
 if __name__ == "__main__":

@@ -3,8 +3,12 @@ import unittest
 from app import (
     annualization_factor,
     build_dashboard_payload,
-    build_revenue_market_cap_payload,
+    build_revenue_price_payload,
     closest_close_on_or_before,
+    fetch_front_adjusted_daily_closes,
+    fetch_revenue_price,
+    is_revenue_price_path,
+    sample_weekly_prices,
     should_redirect_to_static_index,
 )
 
@@ -28,7 +32,7 @@ class BalanceSheetDashboardTest(unittest.TestCase):
 
         self.assertEqual(closest_close_on_or_before(prices, "2024-03-31"), 10.0)
 
-    def test_builds_revenue_market_cap_payload(self):
+    def test_builds_revenue_price_payload(self):
         reports = [
             {
                 "report_date": "2024-03-31",
@@ -54,13 +58,109 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             {"date": "2024-12-31", "close": 40.0},
         ]
 
-        payload = build_revenue_market_cap_payload("002594", "\u6bd4\u4e9a\u8fea", reports, prices, 2.5)
+        payload = build_revenue_price_payload("002594", "\u6bd4\u4e9a\u8fea", reports, prices)
 
-        self.assertEqual(payload["points"][0]["annualized_revenue_yi"], 40.0)
-        self.assertEqual(payload["points"][1]["annualized_revenue_yi"], 60.0)
-        self.assertEqual(payload["points"][2]["annualized_revenue_yi"], 80.0)
-        self.assertEqual(payload["points"][3]["annualized_revenue_yi"], 100.0)
-        self.assertEqual(payload["points"][3]["market_cap_yi"], 100.0)
+        self.assertEqual(payload["revenue_points"][0]["annualized_revenue_yi"], 40.0)
+        self.assertEqual(payload["revenue_points"][1]["annualized_revenue_yi"], 60.0)
+        self.assertEqual(payload["revenue_points"][2]["annualized_revenue_yi"], 80.0)
+        self.assertEqual(payload["revenue_points"][3]["annualized_revenue_yi"], 100.0)
+        self.assertEqual(payload["price_source"], "eastmoney_qfq")
+        self.assertEqual(payload["price_adjustment"], "front_adjusted")
+        self.assertEqual(payload["price_points"], [
+            {"date": "2024-03-29", "price": 10.0},
+            {"date": "2024-06-28", "price": 20.0},
+            {"date": "2024-09-30", "price": 30.0},
+            {"date": "2024-12-31", "price": 40.0},
+        ])
+        self.assertNotIn("points", payload)
+
+    def test_weekly_price_sampling_uses_last_trade_in_each_week(self):
+        prices = [
+            {"date": "2024-01-02", "close": 10.0},
+            {"date": "2024-01-03", "close": 11.0},
+            {"date": "2024-01-05", "close": 12.0},
+            {"date": "2024-01-08", "close": 13.0},
+            {"date": "2024-01-10", "close": 14.0},
+            {"date": "2024-01-19", "close": 15.0},
+        ]
+
+        self.assertEqual(sample_weekly_prices(prices), [
+            {"date": "2024-01-05", "price": 12.0},
+            {"date": "2024-01-10", "price": 14.0},
+            {"date": "2024-01-19", "price": 15.0},
+        ])
+
+    def test_front_adjusted_daily_closes_uses_only_eastmoney_qfq_source(self):
+        import app
+
+        calls = []
+        original_eastmoney = app.fetch_eastmoney_front_adjusted_daily_closes
+        try:
+            app.fetch_eastmoney_front_adjusted_daily_closes = lambda code, start, end: calls.append("eastmoney") or [{"date": "2024-12-31", "close": 40.0}]
+
+            prices = fetch_front_adjusted_daily_closes("002594", "2024-01-01", "2024-12-31")
+        finally:
+            app.fetch_eastmoney_front_adjusted_daily_closes = original_eastmoney
+
+        self.assertEqual(calls, ["eastmoney"])
+        self.assertEqual(prices, [{"date": "2024-12-31", "close": 40.0}])
+
+    def test_front_adjusted_daily_closes_fails_when_eastmoney_qfq_fails(self):
+        import app
+
+        calls = []
+        original_eastmoney = app.fetch_eastmoney_front_adjusted_daily_closes
+        try:
+            def fail_eastmoney(code, start, end):
+                calls.append("eastmoney")
+                raise RuntimeError("eastmoney unavailable")
+
+            app.fetch_eastmoney_front_adjusted_daily_closes = fail_eastmoney
+
+            with self.assertRaisesRegex(RuntimeError, "eastmoney_qfq"):
+                fetch_front_adjusted_daily_closes("002594", "2024-01-01", "2024-12-31")
+        finally:
+            app.fetch_eastmoney_front_adjusted_daily_closes = original_eastmoney
+
+        self.assertEqual(calls, ["eastmoney"])
+
+    def test_revenue_price_extends_prices_to_latest_complete_trading_day(self):
+        import app
+
+        calls = []
+        reports = [
+            {
+                "report_date": "2026-03-31",
+                "items": {"\u8425\u4e1a\u603b\u6536\u5165": 2153000000},
+            }
+        ]
+        prices = [
+            {"date": "2026-03-27", "close": 11.16},
+            {"date": "2026-07-03", "close": 20.34},
+            {"date": "2026-07-06", "close": 21.91},
+        ]
+        original_reports = app.fetch_income_reports
+        original_prices = app.fetch_front_adjusted_daily_closes
+        try:
+            app.fetch_income_reports = lambda code, limit: reports
+
+            def fake_prices(code, start, end):
+                calls.append({"start": start, "end": end})
+                return prices
+
+            app.fetch_front_adjusted_daily_closes = fake_prices
+
+            payload = fetch_revenue_price("002245", "\u851a\u84dd\u9502\u82af", today="2026-07-06")
+        finally:
+            app.fetch_income_reports = original_reports
+            app.fetch_front_adjusted_daily_closes = original_prices
+
+        self.assertEqual(calls[0]["end"], "2026-07-06")
+        self.assertEqual(payload["price_points"][-1], {"date": "2026-07-03", "price": 20.34})
+    def test_revenue_price_route_keeps_old_path_compatible(self):
+        self.assertTrue(is_revenue_price_path("/api/revenue-price"))
+        self.assertTrue(is_revenue_price_path("/api/revenue-market-cap"))
+        self.assertFalse(is_revenue_price_path("/api/balance-sheet"))
 
     def test_fixed_asset_uses_sina_net_amount_and_construction_in_progress(self):
         reports = [
