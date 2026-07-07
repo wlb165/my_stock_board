@@ -81,6 +81,8 @@ Per-share DCF value:
 DCF Per Share = DCF Value / Total Shares
 ```
 
+`Total Shares` must be the share count for the same report period as the DCF point. The historical valuation band must not reuse the latest share count for every period, because issuance, buybacks, and stock dividends can change per-share value.
+
 Safety-buy price:
 
 ```text
@@ -93,14 +95,17 @@ For each report period with enough data:
 
 1. Calculate TTM free cash flow from the latest four quarters ending at that report period.
 2. Calculate conservative, neutral, and optimistic DCF values from the user's assumptions.
-3. Convert each value to per-share value.
-4. Find the latest front-adjusted close on or before the report period.
-5. Add a chart point:
+3. Fetch or derive total shares for the same report period.
+4. Convert each value to per-share value using that period's total shares.
+5. Find the latest front-adjusted close on or before the report period.
+6. Add a chart point:
 
 ```json
 {
   "date": "2025-12-31",
   "price": 88.5,
+  "total_shares": 10999999999,
+  "share_count_source": "report_period",
   "conservative_value": 62.1,
   "neutral_value": 84.3,
   "optimistic_value": 113.8,
@@ -205,10 +210,12 @@ Server-side:
 2. Fetch balance sheet reports for shareholder equity.
 3. Fetch cash flow reports for operating cash flow and capital expenditure.
 4. Fetch daily front-adjusted prices.
-5. Fetch or derive total shares and current market cap.
+5. Fetch or derive report-period total shares and current market cap.
 6. Build quarterly records by report date.
 7. Calculate TTM values and DCF values.
 8. Return a compact payload for the frontend.
+
+If an exact report-period total share count is not available, use the closest available share count on or before that report period and include the source label in the payload. Do not silently substitute the latest total share count for older periods.
 
 Client-side:
 
@@ -234,6 +241,7 @@ Backend unit tests:
 - DCF calculation returns expected conservative, neutral, and optimistic values.
 - DCF rejects invalid `discount_rate <= perpetual_growth_rate`.
 - Valuation payload includes assumptions, summary, and dynamic points.
+- Historical DCF per-share values use period-specific total shares.
 - PE/PB/PS handle zero or missing denominators.
 
 Static asset tests:
