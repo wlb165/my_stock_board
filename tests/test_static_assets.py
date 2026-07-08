@@ -53,10 +53,53 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertIn('id="valuation-panel"', html)
         self.assertIn('id="valuation-form"', html)
         self.assertIn('id="valuation-svg"', html)
-        self.assertIn("鐢熸垚浼板€?", html)
+        self.assertIn("生成估值", html)
         self.assertIn("/api/valuation", script)
         self.assertIn("loadValuationDashboard", script)
         self.assertIn("drawValuationChart", script)
+
+    def test_valuation_view_has_readable_chinese_labels(self):
+        html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+
+        for label in (
+            "\u4f30\u503c",
+            "\u751f\u6210\u4f30\u503c",
+            "\u9884\u6d4b\u5e74\u9650",
+            "\u4fdd\u5b88\u589e\u957f\u7387",
+            "\u4e2d\u6027\u589e\u957f\u7387",
+            "\u4e50\u89c2\u589e\u957f\u7387",
+            "\u6298\u73b0\u7387",
+            "\u6c38\u7eed\u589e\u957f\u7387",
+            "\u5b89\u5168\u8fb9\u9645",
+            "\u5f53\u524d\u80a1\u4ef7",
+            "\u4e2d\u6027 DCF",
+            "\u6298\u4ef7/\u6ea2\u4ef7",
+            "\u5b89\u5168\u4e70\u5165\u4ef7",
+            "\u5f53\u524d\u5e02\u503c",
+            "DCF \u4f30\u503c\u5e26\u4e0e\u80a1\u4ef7\u8d70\u52bf",
+        ):
+            self.assertIn(label, html)
+
+    def test_valuation_fetch_requires_explicit_form_submit(self):
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function showValuationDashboard()", script)
+        self.assertIn(
+            'if (state.view === "valuation") {\n'
+            '    showValuationDashboard();\n'
+            '    return;\n'
+            '  }',
+            script,
+        )
+        self.assertNotIn(
+            'if (state.view === "valuation") {\n'
+            '    loadValuationDashboard();\n'
+            '    return;\n'
+            '  }',
+            script,
+        )
+        self.assertIn('valuationForm.addEventListener("submit"', script)
+        self.assertIn("loadValuationDashboard();", script)
 
 
 if __name__ == "__main__":

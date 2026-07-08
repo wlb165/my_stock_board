@@ -192,6 +192,25 @@ function renderValuation(payload) {
   valuationPanel.hidden = false;
 }
 
+function showValuationDashboard() {
+  [
+    "#valuation-current-price",
+    "#valuation-neutral-value",
+    "#valuation-discount",
+    "#valuation-safety-price",
+    "#valuation-market-cap",
+    "#valuation-pe",
+    "#valuation-pb",
+    "#valuation-ps",
+  ].forEach((selector) => setText(selector, "--"));
+  valuationSvg.innerHTML = "";
+  loading.hidden = true;
+  error.hidden = true;
+  panel.hidden = true;
+  trendPanel.hidden = true;
+  valuationPanel.hidden = false;
+}
+
 function axisMax(values) {
   return niceChartMax(values.map((value) => ({ value })));
 }
@@ -433,7 +452,7 @@ async function loadValuationDashboard() {
 function loadActiveDashboard() {
   periodActions.hidden = state.view !== "balance";
   if (state.view === "valuation") {
-    loadValuationDashboard();
+    showValuationDashboard();
     return;
   }
   if (state.view === "trend") {
