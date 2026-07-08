@@ -4,16 +4,84 @@ from app import (
     annualization_factor,
     build_dashboard_payload,
     build_revenue_price_payload,
+    build_ttm_free_cash_flow_points,
     closest_close_on_or_before,
+    dcf_value,
     fetch_front_adjusted_daily_closes,
     fetch_revenue_price,
     is_revenue_price_path,
     sample_weekly_prices,
     should_redirect_to_static_index,
+    valuation_zone,
 )
 
 
 class BalanceSheetDashboardTest(unittest.TestCase):
+    def test_builds_ttm_free_cash_flow_from_cumulative_cash_flow_reports(self):
+        reports = [
+            {
+                "report_date": "2024-03-31",
+                "items": {
+                    "\u7ecf\u8425\u6d3b\u52a8\u4ea7\u751f\u7684\u73b0\u91d1\u6d41\u91cf\u51c0\u989d": 1000000000,
+                    "\u8d2d\u5efa\u56fa\u5b9a\u8d44\u4ea7\u3001\u65e0\u5f62\u8d44\u4ea7\u548c\u5176\u4ed6\u957f\u671f\u8d44\u4ea7\u652f\u4ed8\u7684\u73b0\u91d1": 200000000,
+                },
+            },
+            {
+                "report_date": "2024-06-30",
+                "items": {
+                    "\u7ecf\u8425\u6d3b\u52a8\u4ea7\u751f\u7684\u73b0\u91d1\u6d41\u91cf\u51c0\u989d": 2500000000,
+                    "\u8d2d\u5efa\u56fa\u5b9a\u8d44\u4ea7\u3001\u65e0\u5f62\u8d44\u4ea7\u548c\u5176\u4ed6\u957f\u671f\u8d44\u4ea7\u652f\u4ed8\u7684\u73b0\u91d1": 700000000,
+                },
+            },
+            {
+                "report_date": "2024-09-30",
+                "items": {
+                    "\u7ecf\u8425\u6d3b\u52a8\u4ea7\u751f\u7684\u73b0\u91d1\u6d41\u91cf\u51c0\u989d": 4300000000,
+                    "\u8d2d\u5efa\u56fa\u5b9a\u8d44\u4ea7\u3001\u65e0\u5f62\u8d44\u4ea7\u548c\u5176\u4ed6\u957f\u671f\u8d44\u4ea7\u652f\u4ed8\u7684\u73b0\u91d1": 1200000000,
+                },
+            },
+            {
+                "report_date": "2024-12-31",
+                "items": {
+                    "\u7ecf\u8425\u6d3b\u52a8\u4ea7\u751f\u7684\u73b0\u91d1\u6d41\u91cf\u51c0\u989d": 7000000000,
+                    "\u8d2d\u5efa\u56fa\u5b9a\u8d44\u4ea7\u3001\u65e0\u5f62\u8d44\u4ea7\u548c\u5176\u4ed6\u957f\u671f\u8d44\u4ea7\u652f\u4ed8\u7684\u73b0\u91d1": 2000000000,
+                },
+            },
+            {
+                "report_date": "2025-03-31",
+                "items": {
+                    "\u7ecf\u8425\u6d3b\u52a8\u4ea7\u751f\u7684\u73b0\u91d1\u6d41\u91cf\u51c0\u989d": 1300000000,
+                    "\u8d2d\u5efa\u56fa\u5b9a\u8d44\u4ea7\u3001\u65e0\u5f62\u8d44\u4ea7\u548c\u5176\u4ed6\u957f\u671f\u8d44\u4ea7\u652f\u4ed8\u7684\u73b0\u91d1": 300000000,
+                },
+            },
+        ]
+
+        points = build_ttm_free_cash_flow_points(reports)
+
+        self.assertEqual(points[0], {"date": "2024-12-31", "ttm_fcf": 5000000000})
+        self.assertEqual(points[1], {"date": "2025-03-31", "ttm_fcf": 5200000000})
+
+    def test_dcf_value_uses_growth_discount_and_terminal_value(self):
+        value = dcf_value(
+            base_fcf=100000000,
+            growth_rate=0.10,
+            discount_rate=0.10,
+            perpetual_growth_rate=0.025,
+            forecast_years=5,
+        )
+
+        self.assertEqual(round(value, 0), 1866666667)
+
+    def test_dcf_value_rejects_terminal_growth_at_or_above_discount_rate(self):
+        with self.assertRaisesRegex(ValueError, "discount_rate"):
+            dcf_value(100000000, 0.10, 0.025, 0.025, 5)
+
+    def test_valuation_zone_describes_price_position(self):
+        self.assertEqual(valuation_zone(50, 70, 100, 130), "\u4f4e\u4e8e\u4fdd\u5b88\u4f30\u503c")
+        self.assertEqual(valuation_zone(80, 70, 100, 130), "\u4fdd\u5b88\u533a\u95f4")
+        self.assertEqual(valuation_zone(110, 70, 100, 130), "\u5408\u7406\u533a\u95f4")
+        self.assertEqual(valuation_zone(150, 70, 100, 130), "\u9ad8\u4e8e\u4e50\u89c2\u4f30\u503c")
+
     def test_root_request_redirects_to_static_index(self):
         self.assertTrue(should_redirect_to_static_index("/"))
         self.assertFalse(should_redirect_to_static_index("/static/index.html"))

@@ -120,6 +120,78 @@ def revenue_value(items):
     return field_value(items, ("first", ["营业总收入", "营业收入"]))
 
 
+OPERATING_CASH_FLOW_FIELDS = [
+    "\u7ecf\u8425\u6d3b\u52a8\u4ea7\u751f\u7684\u73b0\u91d1\u6d41\u91cf\u51c0\u989d",
+    "\u7ecf\u8425\u6d3b\u52a8\u73b0\u91d1\u6d41\u91cf\u51c0\u989d",
+]
+CAPEX_FIELDS = ["\u8d2d\u5efa\u56fa\u5b9a\u8d44\u4ea7\u3001\u65e0\u5f62\u8d44\u4ea7\u548c\u5176\u4ed6\u957f\u671f\u8d44\u4ea7\u652f\u4ed8\u7684\u73b0\u91d1"]
+
+
+def cash_flow_value(items, names):
+    return field_value(items, ("first", names))
+
+
+def report_year(report_date):
+    return report_date[:4]
+
+
+def quarterly_from_cumulative(reports, value_fn):
+    ordered = sorted(reports, key=lambda item: item["report_date"])
+    previous_by_year = {}
+    quarters = []
+    for report in ordered:
+        date = report["report_date"]
+        year = report_year(date)
+        cumulative = value_fn(report["items"])
+        previous = previous_by_year.get(year, 0.0)
+        quarter_value = cumulative - previous
+        previous_by_year[year] = cumulative
+        quarters.append({"date": date, "value": quarter_value})
+    return quarters
+
+
+def build_ttm_free_cash_flow_points(cash_reports):
+    operating_quarters = quarterly_from_cumulative(
+        cash_reports,
+        lambda items: cash_flow_value(items, OPERATING_CASH_FLOW_FIELDS),
+    )
+    capex_quarters = quarterly_from_cumulative(
+        cash_reports,
+        lambda items: cash_flow_value(items, CAPEX_FIELDS),
+    )
+    quarterly_fcf = []
+    for operating, capex in zip(operating_quarters, capex_quarters):
+        quarterly_fcf.append({"date": operating["date"], "value": operating["value"] - capex["value"]})
+
+    points = []
+    for index in range(3, len(quarterly_fcf)):
+        window = quarterly_fcf[index - 3 : index + 1]
+        points.append({"date": quarterly_fcf[index]["date"], "ttm_fcf": sum(item["value"] for item in window)})
+    return points
+
+
+def dcf_value(base_fcf, growth_rate, discount_rate, perpetual_growth_rate, forecast_years):
+    if discount_rate <= perpetual_growth_rate:
+        raise ValueError("discount_rate must be greater than perpetual_growth_rate")
+    value = 0.0
+    final_fcf = base_fcf
+    for year in range(1, forecast_years + 1):
+        final_fcf = base_fcf * ((1 + growth_rate) ** year)
+        value += final_fcf / ((1 + discount_rate) ** year)
+    terminal_value = final_fcf * (1 + perpetual_growth_rate) / (discount_rate - perpetual_growth_rate)
+    value += terminal_value / ((1 + discount_rate) ** forecast_years)
+    return value
+
+
+def valuation_zone(price, conservative, neutral, optimistic):
+    if price < conservative:
+        return "\u4f4e\u4e8e\u4fdd\u5b88\u4f30\u503c"
+    if price < neutral:
+        return "\u4fdd\u5b88\u533a\u95f4"
+    if price <= optimistic:
+        return "\u5408\u7406\u533a\u95f4"
+    return "\u9ad8\u4e8e\u4e50\u89c2\u4f30\u503c"
+
 def closest_close_on_or_before(prices, report_date):
     ordered = sorted(prices, key=lambda item: item["date"])
     dates = [item["date"] for item in ordered]
