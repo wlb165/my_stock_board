@@ -138,6 +138,15 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         self.assertEqual(payload["points"][0]["total_shares"], 100000000)
         self.assertEqual(payload["points"][0]["share_count_source"], "balance_sheet_share_capital")
         self.assertEqual(payload["summary"]["market_cap_yi"], 12.0)
+        self.assertEqual(
+            payload["points"][0]["safety_buy_price"],
+            round(payload["points"][0]["neutral_value"] * (1 - assumptions["safety_margin"]), 2),
+        )
+        self.assertEqual(payload["summary"]["safety_buy_price"], payload["points"][0]["safety_buy_price"])
+        self.assertEqual(
+            payload["summary"]["discount_to_neutral_pct"],
+            round((payload["points"][0]["neutral_value"] - 12.0) / payload["points"][0]["neutral_value"] * 100, 2),
+        )
 
     def test_build_valuation_payload_uses_period_specific_total_shares(self):
         assumptions = {
@@ -251,6 +260,7 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         self.assertIsNone(summary["ps_ttm"])
         self.assertIsNone(summary["market_cap_yi"])
         self.assertIsNone(summary["current_price"])
+        self.assertIsNone(summary["discount_to_neutral_pct"])
 
     def test_builds_ttm_free_cash_flow_from_cumulative_cash_flow_reports(self):
         reports = [

@@ -9,3 +9,15 @@ RED:
 GREEN:
 - `python -B -m unittest tests.test_static_assets` passed: `Ran 7 tests in 0.017s OK`.
 - `node --check static/app.js` passed with exit code 0.
+
+
+## Valuation Safety Field Fix Evidence
+
+RED:
+- Command: python -B -m unittest tests.test_balance_sheet
+- Result: FAILED, ran 22 tests, 2 errors
+- Expected failures: missing safety_buy_price on valuation point and missing discount_to_neutral_pct in summary
+
+GREEN:
+- Command: python -B -m unittest tests.test_balance_sheet
+- Result: OK, ran 22 tests in 0.005s

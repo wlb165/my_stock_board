@@ -378,6 +378,7 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
                 "conservative_value": round(conservative, 2),
                 "neutral_value": round(neutral, 2),
                 "optimistic_value": round(optimistic, 2),
+                "safety_buy_price": round(neutral * (1 - assumptions["safety_margin"]), 2),
                 "safety_price": round(neutral * (1 - assumptions["safety_margin"]), 2),
                 "zone": valuation_zone(price, conservative, neutral, optimistic) if price else None,
                 "pe_ttm": metric_ratio(market_cap, net_profit_ttm.get(date)),
@@ -387,6 +388,13 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
         )
 
     latest = points[-1] if points else {}
+    current_price = latest.get("price")
+    neutral_value = latest.get("neutral_value")
+    discount_to_neutral_pct = (
+        round((neutral_value - current_price) / neutral_value * 100, 2)
+        if current_price and neutral_value
+        else None
+    )
     return {
         "company": {"code": code, "name": name or code},
         "assumptions": assumptions,
@@ -397,6 +405,8 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
             "current_price": latest.get("price"),
             "market_cap_yi": latest.get("market_cap_yi"),
             "neutral_value": latest.get("neutral_value"),
+            "safety_buy_price": latest.get("safety_buy_price"),
+            "discount_to_neutral_pct": discount_to_neutral_pct,
             "pe_ttm": latest.get("pe_ttm"),
             "pb": latest.get("pb"),
             "ps_ttm": latest.get("ps_ttm"),
