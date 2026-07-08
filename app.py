@@ -294,7 +294,7 @@ def ttm_value_by_date(reports, value_fn):
 
 
 def metric_ratio(numerator, denominator):
-    return round(numerator / denominator, 2) if denominator else None
+    return round(numerator / denominator, 2) if numerator is not None and denominator else None
 
 
 def net_profit_value(items):
@@ -342,7 +342,7 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
             assumptions["perpetual_growth_rate"],
             assumptions["forecast_years"],
         ) / total_shares
-        market_cap = price * total_shares if price else 0.0
+        market_cap = price * total_shares if price else None
         balance_report = closest_report_on_or_before(balance_reports, date)
         equity = equity_value(balance_report["items"]) if balance_report else 0.0
 
@@ -350,6 +350,7 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
             {
                 "date": date,
                 "price": round(price, 2) if price else None,
+                "market_cap_yi": round(market_cap / 100000000, 2) if market_cap is not None else None,
                 "ttm_fcf": round(ttm_fcf, 2),
                 "total_shares": total_shares,
                 "share_count_source": share_point.get("source", "provided_share_points"),
@@ -372,6 +373,8 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
         "summary": {
             "date": latest.get("date"),
             "price": latest.get("price"),
+            "current_price": latest.get("price"),
+            "market_cap_yi": latest.get("market_cap_yi"),
             "neutral_value": latest.get("neutral_value"),
             "pe_ttm": latest.get("pe_ttm"),
             "pb": latest.get("pb"),

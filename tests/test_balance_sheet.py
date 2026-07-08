@@ -101,6 +101,65 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         self.assertIn("pb", payload["summary"])
         self.assertIn("ps_ttm", payload["summary"])
 
+    def test_build_valuation_payload_uses_none_for_missing_price_metrics(self):
+        import app
+
+        assumptions = {
+            "cash_flow_basis": "ttm_fcf",
+            "forecast_years": 5,
+            "growth_conservative": 0.0,
+            "growth_neutral": 0.0,
+            "growth_optimistic": 0.0,
+            "discount_rate": 0.10,
+            "perpetual_growth_rate": 0.02,
+            "safety_margin": 0.25,
+            "alignment": "report_period",
+        }
+        dates = ["2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31"]
+        cash_reports = [
+            {
+                "report_date": date,
+                "items": {
+                    app.OPERATING_CASH_FLOW_FIELDS[0]: (index + 1) * 100000000,
+                    app.CAPEX_FIELDS[0]: 0,
+                },
+            }
+            for index, date in enumerate(dates)
+        ]
+        income_reports = [
+            {
+                "report_date": date,
+                "items": {
+                    "钀ヤ笟鎬绘敹鍏?": (index + 1) * 200000000,
+                    app.NET_PROFIT_FIELDS[0]: (index + 1) * 10000000,
+                },
+            }
+            for index, date in enumerate(dates)
+        ]
+        balance_reports = [
+            {"report_date": "2024-12-31", "items": {app.EQUITY_FIELDS[0]: 1000000000}},
+        ]
+        share_points = [{"date": "2024-12-31", "total_shares": 100000000}]
+        prices = [{"date": "2024-12-31", "close": ""}]
+
+        payload = build_valuation_payload(
+            "002594",
+            "BYD",
+            income_reports,
+            balance_reports,
+            cash_reports,
+            prices,
+            share_points,
+            assumptions,
+        )
+
+        summary = payload["summary"]
+        self.assertIsNone(summary["pe_ttm"])
+        self.assertIsNone(summary["pb"])
+        self.assertIsNone(summary["ps_ttm"])
+        self.assertIsNone(summary["market_cap_yi"])
+        self.assertIsNone(summary["current_price"])
+
     def test_builds_ttm_free_cash_flow_from_cumulative_cash_flow_reports(self):
         reports = [
             {
