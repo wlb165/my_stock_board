@@ -132,7 +132,7 @@ Add these tests:
 Run:
 
 ```bash
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_balance_sheet
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_balance_sheet
 ```
 
 Expected: failure because the imported valuation helpers do not exist.
@@ -217,7 +217,7 @@ def valuation_zone(price, conservative, neutral, optimistic):
 Run:
 
 ```bash
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_balance_sheet
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_balance_sheet
 ```
 
 Expected: pass.
@@ -350,7 +350,7 @@ Add these tests:
 Run:
 
 ```bash
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_balance_sheet
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_balance_sheet
 ```
 
 Expected: failure because route and payload helpers do not exist.
@@ -447,7 +447,7 @@ For `fetch_valuation`, fetch income, balance, cash reports, prices, and share po
 Run:
 
 ```bash
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_balance_sheet
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_balance_sheet
 ```
 
 Expected: pass.
@@ -507,7 +507,7 @@ Add to `tests/test_static_assets.py`:
 Run:
 
 ```bash
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_static_assets
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_static_assets
 ```
 
 Expected: failure because the valuation tab and script hooks do not exist.
@@ -578,7 +578,7 @@ Add a new section inside `.board` after `trend-panel`:
 Run:
 
 ```bash
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_static_assets
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_static_assets
 ```
 
 Expected: still fails until Task 4 adds JavaScript hooks.
@@ -864,8 +864,8 @@ Add to `static/styles.css`:
 Run:
 
 ```bash
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_static_assets
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" --check static/app.js
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_static_assets
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" --check static/app.js
 ```
 
 Expected: both pass.
@@ -895,8 +895,8 @@ git commit -m "Add valuation dashboard UI"
 Run:
 
 ```bash
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_balance_sheet tests.test_static_assets
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" --check static/app.js
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -B -m unittest tests.test_balance_sheet tests.test_static_assets
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" --check static/app.js
 ```
 
 Expected: all tests pass and JS syntax check exits with code 0.
@@ -906,7 +906,7 @@ Expected: all tests pass and JS syntax check exits with code 0.
 Run:
 
 ```bash
-"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" app.py
+& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" app.py
 ```
 
 Expected: server starts at `http://127.0.0.1:8765`.
@@ -930,7 +930,7 @@ Verify:
 
 - [ ] **Step 4: Stop the server**
 
-Use `Ctrl+C` in the terminal running `"C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" app.py`.
+Use `Ctrl+C` in the terminal running `& "C:\Users\10122\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" app.py`.
 
 - [ ] **Step 5: Check final diff and status**
 
