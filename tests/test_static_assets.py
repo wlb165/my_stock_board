@@ -45,6 +45,19 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertIn("revenue-axis-title", script)
         self.assertIn("price-axis-title", script)
 
+    def test_valuation_view_is_wired(self):
+        html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('data-view="valuation"', html)
+        self.assertIn('id="valuation-panel"', html)
+        self.assertIn('id="valuation-form"', html)
+        self.assertIn('id="valuation-svg"', html)
+        self.assertIn("鐢熸垚浼板€?", html)
+        self.assertIn("/api/valuation", script)
+        self.assertIn("loadValuationDashboard", script)
+        self.assertIn("drawValuationChart", script)
+
 
 if __name__ == "__main__":
     unittest.main()
