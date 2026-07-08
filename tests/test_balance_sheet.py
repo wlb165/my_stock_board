@@ -1,3 +1,5 @@
+import sys
+import types
 import unittest
 
 from app import (
@@ -437,6 +439,141 @@ class BalanceSheetDashboardTest(unittest.TestCase):
 
         self.assertEqual(calls, ["eastmoney"])
 
+    def test_baidu_daily_closes_parses_market_data_rows(self):
+        import app
+
+        response = {
+            "Result": {
+                "newMarketData": {
+                    "keys": ["timestamp", "time", "open", "close"],
+                    "marketData": (
+                        "1704067200,2024-01-01,10.00,11.00;"
+                        "1704153600,2024-01-02,11.00,12.00;"
+                        "1704240000,2024-01-03,12.00,--"
+                    ),
+                }
+            }
+        }
+        original_read_url = app.read_url
+        try:
+            app.read_url = lambda request, timeout=15: __import__("json").dumps(response)
+
+            prices = app.fetch_baidu_daily_closes("002594", "2024-01-02", "2024-01-31")
+        finally:
+            app.read_url = original_read_url
+
+        self.assertEqual(prices, [{"date": "2024-01-02", "close": 12.0}])
+
+    def test_mootdx_daily_closes_parses_daily_bars(self):
+        import app
+
+        quotes_module = types.ModuleType("mootdx.quotes")
+        mootdx_module = types.ModuleType("mootdx")
+
+        class FakeClient:
+            def bars(self, symbol, category, start=0, offset=800):
+                self.call = {"symbol": symbol, "category": category, "start": start, "offset": offset}
+                return [
+                    {"datetime": "2024-01-01", "close": 11.0},
+                    {"datetime": "2024-01-02 15:00", "close": 12.0},
+                    {"datetime": "2024-01-03", "close": 0},
+                ]
+
+        fake_client = FakeClient()
+
+        class FakeQuotes:
+            @staticmethod
+            def factory(market="std", **kwargs):
+                return fake_client
+
+        quotes_module.Quotes = FakeQuotes
+        original_mootdx = sys.modules.get("mootdx")
+        original_quotes = sys.modules.get("mootdx.quotes")
+        try:
+            sys.modules["mootdx"] = mootdx_module
+            sys.modules["mootdx.quotes"] = quotes_module
+
+            prices = app.fetch_mootdx_daily_closes("002594", "2024-01-02", "2024-01-31")
+        finally:
+            if original_mootdx is None:
+                sys.modules.pop("mootdx", None)
+            else:
+                sys.modules["mootdx"] = original_mootdx
+            if original_quotes is None:
+                sys.modules.pop("mootdx.quotes", None)
+            else:
+                sys.modules["mootdx.quotes"] = original_quotes
+
+        self.assertEqual(fake_client.call["symbol"], "002594")
+        self.assertEqual(fake_client.call["category"], 4)
+        self.assertEqual(prices, [{"date": "2024-01-02", "close": 12.0}])
+
+    def test_revenue_price_daily_closes_falls_back_to_mootdx_when_eastmoney_fails(self):
+        import app
+
+        calls = []
+        original_eastmoney = app.fetch_front_adjusted_daily_closes
+        original_mootdx = app.fetch_mootdx_daily_closes
+        original_baidu = app.fetch_baidu_daily_closes
+        try:
+            def fail_eastmoney(code, start, end):
+                calls.append("eastmoney")
+                raise RuntimeError("eastmoney unavailable")
+
+            def fake_mootdx(code, start, end):
+                calls.append("mootdx")
+                return [{"date": "2024-12-31", "close": 40.0}]
+
+            def fake_baidu(code, start, end):
+                calls.append("baidu")
+                return [{"date": "2024-12-31", "close": 41.0}]
+
+            app.fetch_front_adjusted_daily_closes = fail_eastmoney
+            app.fetch_mootdx_daily_closes = fake_mootdx
+            app.fetch_baidu_daily_closes = fake_baidu
+
+            prices = app.fetch_resilient_daily_closes("002594", "2024-01-01", "2024-12-31")
+        finally:
+            app.fetch_front_adjusted_daily_closes = original_eastmoney
+            app.fetch_mootdx_daily_closes = original_mootdx
+            app.fetch_baidu_daily_closes = original_baidu
+
+        self.assertEqual(calls, ["eastmoney", "mootdx"])
+        self.assertEqual(prices, [{"date": "2024-12-31", "close": 40.0}])
+
+    def test_valuation_daily_closes_falls_back_to_baidu_when_eastmoney_and_mootdx_fail(self):
+        import app
+
+        calls = []
+        original_eastmoney = app.fetch_front_adjusted_daily_closes
+        original_mootdx = app.fetch_mootdx_daily_closes
+        original_baidu = app.fetch_baidu_daily_closes
+        try:
+            def fail_eastmoney(code, start, end):
+                calls.append("eastmoney")
+                raise RuntimeError("eastmoney unavailable")
+
+            def fail_mootdx(code, start, end):
+                calls.append("mootdx")
+                raise RuntimeError("mootdx unavailable")
+
+            def fake_baidu(code, start, end):
+                calls.append("baidu")
+                return [{"date": "2024-12-31", "close": 40.0}]
+
+            app.fetch_front_adjusted_daily_closes = fail_eastmoney
+            app.fetch_mootdx_daily_closes = fail_mootdx
+            app.fetch_baidu_daily_closes = fake_baidu
+
+            prices = app.fetch_valuation_daily_closes("002594", "2024-01-01", "2024-12-31")
+        finally:
+            app.fetch_front_adjusted_daily_closes = original_eastmoney
+            app.fetch_mootdx_daily_closes = original_mootdx
+            app.fetch_baidu_daily_closes = original_baidu
+
+        self.assertEqual(calls, ["eastmoney", "mootdx", "baidu"])
+        self.assertEqual(prices, [{"date": "2024-12-31", "close": 40.0}])
+
     def test_revenue_price_extends_prices_to_latest_complete_trading_day(self):
         import app
 
@@ -453,7 +590,7 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             {"date": "2026-07-06", "close": 21.91},
         ]
         original_reports = app.fetch_income_reports
-        original_prices = app.fetch_front_adjusted_daily_closes
+        original_prices = app.fetch_resilient_daily_closes
         try:
             app.fetch_income_reports = lambda code, limit: reports
 
@@ -461,12 +598,12 @@ class BalanceSheetDashboardTest(unittest.TestCase):
                 calls.append({"start": start, "end": end})
                 return prices
 
-            app.fetch_front_adjusted_daily_closes = fake_prices
+            app.fetch_resilient_daily_closes = fake_prices
 
             payload = fetch_revenue_price("002245", "\u851a\u84dd\u9502\u82af", today="2026-07-06")
         finally:
             app.fetch_income_reports = original_reports
-            app.fetch_front_adjusted_daily_closes = original_prices
+            app.fetch_resilient_daily_closes = original_prices
 
         self.assertEqual(calls[0]["end"], "2026-07-06")
         self.assertEqual(payload["price_points"][-1], {"date": "2026-07-03", "price": 20.34})

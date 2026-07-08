@@ -13,6 +13,7 @@ STATIC_DIR = ROOT / "static"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 SINA_FINANCE_URL = "https://quotes.sina.cn/cn/api/openapi.php/CompanyFinanceService.getFinanceReport2022"
 EASTMONEY_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+BAIDU_KLINE_URL = "https://finance.pae.baidu.com/selfselect/getstockquotation"
 
 ASSET_GROUPS = [
     ("现金", ["货币资金"]),
@@ -517,6 +518,97 @@ def fetch_eastmoney_front_adjusted_daily_closes(code, start_date, end_date):
             prices.append({"date": parts[0], "close": parse_number(parts[2])})
     return prices
 
+def fetch_baidu_daily_closes(code, start_date, end_date):
+    params = urlencode(
+        {
+            "all": "1",
+            "isIndex": "false",
+            "isBk": "false",
+            "isBlock": "false",
+            "isFutures": "false",
+            "isStock": "true",
+            "newFormat": "1",
+            "group": "quotation_kline_ab",
+            "finClientType": "pc",
+            "code": code,
+            "start_time": start_date.replace("-", ""),
+            "ktype": "1",
+        }
+    )
+    request = Request(
+        f"{BAIDU_KLINE_URL}?{params}",
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/vnd.finance-web.v1+json",
+            "Origin": "https://gushitong.baidu.com",
+            "Referer": "https://gushitong.baidu.com/",
+        },
+    )
+    data = json.loads(read_url(request, timeout=15))
+    if "ResultCode" in data and str(data.get("ResultCode")) != "0":
+        raise RuntimeError(f"baidu_kline source returned ResultCode {data.get('ResultCode')}")
+    market_data = ((data.get("Result") or {}).get("newMarketData") or {})
+    keys = market_data.get("keys") or []
+    rows = (market_data.get("marketData") or "").split(";")
+    date_index = keys.index("time") if "time" in keys else 1
+    close_index = keys.index("close") if "close" in keys else 3
+    prices = []
+    for row in rows:
+        parts = row.split(",")
+        if len(parts) <= max(date_index, close_index):
+            continue
+        date = parts[date_index]
+        close = parse_number(parts[close_index])
+        if start_date <= date <= end_date and close:
+            prices.append({"date": date, "close": close})
+    return prices
+
+def fetch_mootdx_daily_closes(code, start_date, end_date):
+    try:
+        from mootdx.quotes import Quotes
+    except Exception as exc:
+        raise RuntimeError(f"mootdx source unavailable: {exc}") from exc
+
+    client = Quotes.factory(market="std", timeout=5)
+    bars = client.bars(symbol=code, category=4, offset=3000)
+    if hasattr(bars, "reset_index"):
+        records = bars.reset_index().to_dict("records")
+    elif hasattr(bars, "to_dict"):
+        records = bars.to_dict("records")
+    else:
+        records = list(bars or [])
+
+    prices = []
+    for record in records:
+        date_value = record.get("datetime") or record.get("date") or record.get("time")
+        date = str(date_value)[:10] if date_value else ""
+        close = parse_number(record.get("close"))
+        if start_date <= date <= end_date and close:
+            prices.append({"date": date, "close": close})
+    return prices
+
+
+def fetch_resilient_daily_closes(code, start_date, end_date):
+    errors = []
+    sources = [
+        ("eastmoney_qfq", fetch_front_adjusted_daily_closes),
+        ("mootdx", fetch_mootdx_daily_closes),
+        ("baidu_kline", fetch_baidu_daily_closes),
+    ]
+    for source_name, fetcher in sources:
+        try:
+            prices = fetcher(code, start_date, end_date)
+        except Exception as exc:
+            errors.append(f"{source_name}: {exc}")
+            continue
+        if prices:
+            return prices
+        errors.append(f"{source_name}: returned no daily close data")
+    raise RuntimeError("daily close sources failed: " + "; ".join(errors))
+
+
+def fetch_valuation_daily_closes(code, start_date, end_date):
+    return fetch_resilient_daily_closes(code, start_date, end_date)
 
 def fetch_front_adjusted_daily_closes(code, start_date, end_date):
     try:
@@ -540,7 +632,7 @@ def fetch_revenue_price(code, name, limit=32, today=None):
     today = today or datetime.now().strftime("%Y-%m-%d")
     end_date = today
     try:
-        prices = fetch_front_adjusted_daily_closes(code, start_date, end_date)
+        prices = fetch_resilient_daily_closes(code, start_date, end_date)
         prices = [item for item in prices if item.get("date", "") < today]
     except Exception as exc:
         raise RuntimeError(f"daily close source failed: {exc}") from exc
@@ -560,7 +652,7 @@ def fetch_valuation(code, name, assumptions, limit=32, today=None):
     start_date = (datetime.strptime(min(report_dates), "%Y-%m-%d") - timedelta(days=10)).strftime("%Y-%m-%d")
     today = today or datetime.now().strftime("%Y-%m-%d")
     try:
-        prices = fetch_front_adjusted_daily_closes(code, start_date, today)
+        prices = fetch_valuation_daily_closes(code, start_date, today)
         prices = [item for item in prices if item.get("date", "") < today]
     except Exception as exc:
         raise RuntimeError(f"daily close source failed: {exc}") from exc
