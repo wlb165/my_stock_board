@@ -266,6 +266,24 @@ def parse_valuation_assumptions(params):
     return assumptions
 
 
+SHARE_CAPITAL_FIELDS = ["实收资本（或股本）", "实收资本(或股本)", "股本"]
+
+
+def build_share_points_from_balance_reports(balance_reports):
+    share_points = []
+    for report in sorted(balance_reports, key=lambda item: item["report_date"]):
+        total_shares = field_value(report["items"], ("first", SHARE_CAPITAL_FIELDS))
+        if total_shares:
+            share_points.append(
+                {
+                    "date": report["report_date"],
+                    "total_shares": total_shares,
+                    "share_count_source": "balance_sheet_share_capital",
+                }
+            )
+    return share_points
+
+
 def closest_share_on_or_before(share_points, report_date):
     ordered = sorted(share_points, key=lambda item: item["date"])
     dates = [item["date"] for item in ordered]
@@ -353,7 +371,10 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
                 "market_cap_yi": round(market_cap / 100000000, 2) if market_cap is not None else None,
                 "ttm_fcf": round(ttm_fcf, 2),
                 "total_shares": total_shares,
-                "share_count_source": share_point.get("source", "provided_share_points"),
+                "share_count_source": share_point.get(
+                    "share_count_source",
+                    share_point.get("source", "provided_share_points"),
+                ),
                 "conservative_value": round(conservative, 2),
                 "neutral_value": round(neutral, 2),
                 "optimistic_value": round(optimistic, 2),
@@ -533,7 +554,9 @@ def fetch_valuation(code, name, assumptions, limit=32, today=None):
         prices = [item for item in prices if item.get("date", "") < today]
     except Exception as exc:
         raise RuntimeError(f"daily close source failed: {exc}") from exc
-    share_points = derive_share_points_from_market_cap(prices)
+    balance_share_points = build_share_points_from_balance_reports(balance_reports)
+    market_cap_share_points = derive_share_points_from_market_cap(prices)
+    share_points = balance_share_points or market_cap_share_points
     payload = build_valuation_payload(
         code,
         name,

@@ -47,6 +47,98 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "discount_rate"):
             parse_valuation_assumptions(params)
 
+    def test_build_share_points_from_balance_reports_reads_share_capital(self):
+        import app
+
+        balance_reports = [
+            {"report_date": "2024-12-31", "items": {"实收资本（或股本）": 3039068554}},
+            {"report_date": "2025-03-31", "items": {"实收资本(或股本)": "3050000000"}},
+            {"report_date": "2025-06-30", "items": {"股本": 3060000000}},
+        ]
+
+        points = app.build_share_points_from_balance_reports(balance_reports)
+
+        self.assertEqual(points, [
+            {
+                "date": "2024-12-31",
+                "total_shares": 3039068554,
+                "share_count_source": "balance_sheet_share_capital",
+            },
+            {
+                "date": "2025-03-31",
+                "total_shares": 3050000000,
+                "share_count_source": "balance_sheet_share_capital",
+            },
+            {
+                "date": "2025-06-30",
+                "total_shares": 3060000000,
+                "share_count_source": "balance_sheet_share_capital",
+            },
+        ])
+
+    def test_build_valuation_payload_uses_balance_sheet_share_points_with_close_only_prices(self):
+        import app
+
+        assumptions = {
+            "cash_flow_basis": "ttm_fcf",
+            "forecast_years": 5,
+            "growth_conservative": 0.0,
+            "growth_neutral": 0.0,
+            "growth_optimistic": 0.0,
+            "discount_rate": 0.10,
+            "perpetual_growth_rate": 0.02,
+            "safety_margin": 0.25,
+            "alignment": "report_period",
+        }
+        dates = ["2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31"]
+        cash_reports = [
+            {
+                "report_date": date,
+                "items": {
+                    app.OPERATING_CASH_FLOW_FIELDS[0]: (index + 1) * 100000000,
+                    app.CAPEX_FIELDS[0]: 0,
+                },
+            }
+            for index, date in enumerate(dates)
+        ]
+        income_reports = [
+            {
+                "report_date": date,
+                "items": {
+                    "营业总收入": (index + 1) * 200000000,
+                    app.NET_PROFIT_FIELDS[0]: (index + 1) * 10000000,
+                },
+            }
+            for index, date in enumerate(dates)
+        ]
+        balance_reports = [
+            {
+                "report_date": "2024-12-31",
+                "items": {
+                    "实收资本（或股本）": 100000000,
+                    app.EQUITY_FIELDS[0]: 1000000000,
+                },
+            },
+        ]
+        prices = [{"date": "2024-12-31", "close": 12.0}]
+        share_points = app.build_share_points_from_balance_reports(balance_reports)
+
+        payload = build_valuation_payload(
+            "002594",
+            "比亚迪",
+            income_reports,
+            balance_reports,
+            cash_reports,
+            prices,
+            share_points,
+            assumptions,
+        )
+
+        self.assertEqual(len(payload["points"]), 1)
+        self.assertEqual(payload["points"][0]["total_shares"], 100000000)
+        self.assertEqual(payload["points"][0]["share_count_source"], "balance_sheet_share_capital")
+        self.assertEqual(payload["summary"]["market_cap_yi"], 12.0)
+
     def test_build_valuation_payload_uses_period_specific_total_shares(self):
         assumptions = {
             "cash_flow_basis": "ttm_fcf",
