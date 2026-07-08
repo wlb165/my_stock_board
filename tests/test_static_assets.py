@@ -57,6 +57,28 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertIn("/api/valuation", script)
         self.assertIn("loadValuationDashboard", script)
         self.assertIn("drawValuationChart", script)
+        self.assertIn("price_points", script)
+        self.assertIn("extendedLinePathFor", script)
+        self.assertNotIn("stepPathFor", script)
+        self.assertIn("yearGuides", script)
+
+    def test_valuation_chart_marks_negative_fcf_periods(self):
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn("negativeFcfMarkers", script)
+        self.assertIn("橙色标记：TTM FCF < 0", script)
+        self.assertIn("该报告期 TTM FCF < 0", script)
+        self.assertNotIn("DCF不展示", script)
+        self.assertNotIn("DCF估值不展示", script)
+        self.assertIn("valuation-negative-marker", script)
+        self.assertIn(".valuation-negative-marker", styles)
+
+    def test_valuation_lines_connect_positive_points_across_negative_markers(self):
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertNotIn("drawing = false", script)
+        self.assertIn("const usable = points.filter((item) => Number(item[field]) > 0)", script)
 
     def test_valuation_view_has_readable_chinese_labels(self):
         html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
@@ -77,6 +99,8 @@ class StaticAssetsTest(unittest.TestCase):
             "\u5b89\u5168\u4e70\u5165\u4ef7",
             "\u5f53\u524d\u5e02\u503c",
             "DCF \u4f30\u503c\u5e26\u4e0e\u80a1\u4ef7\u8d70\u52bf",
+            "\u524d\u590d\u6743\u5386\u53f2\u6536\u76d8\u4ef7",
+            "\u5386\u53f2 DCF \u6bcf\u80a1\u503c\u6309\u6700\u65b0\u80a1\u672c\u91cd\u7b97",
         ):
             self.assertIn(label, html)
 

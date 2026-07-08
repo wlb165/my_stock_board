@@ -186,7 +186,7 @@ function renderValuation(payload) {
   setText("#valuation-pe", ratioText(summary.pe_ttm));
   setText("#valuation-pb", ratioText(summary.pb));
   setText("#valuation-ps", ratioText(summary.ps_ttm));
-  drawValuationChart(payload.points || []);
+  drawValuationChart(payload.points || [], payload.price_points || []);
   loading.hidden = true;
   error.hidden = true;
   valuationPanel.hidden = false;
@@ -301,8 +301,8 @@ function drawTrendChart(revenuePoints, pricePoints) {
   ].join("");
 }
 
-function drawValuationChart(points) {
-  if (!points.length) {
+function drawValuationChart(points, pricePoints) {
+  if (!points.length && !pricePoints.length) {
     valuationSvg.innerHTML = "";
     return;
   }
@@ -311,39 +311,91 @@ function drawValuationChart(points) {
   const margin = { top: 42, right: 52, bottom: 64, left: 78 };
   const chartWidth = width - margin.left - margin.right;
   const chartHeight = height - margin.top - margin.bottom;
-  const values = points.flatMap((item) => [
-    item.price,
+  const values = [
+    ...pricePoints.map((item) => item.price),
+    ...points.flatMap((item) => [
     item.conservative_value,
     item.neutral_value,
     item.optimistic_value,
     item.safety_buy_price,
-  ]).filter((value) => Number(value) > 0);
+    ]),
+  ].filter((value) => Number(value) > 0);
   const maxValue = axisMax(values);
-  const minTime = Math.min(...points.map((item) => new Date(item.date).getTime()));
-  const maxTime = Math.max(...points.map((item) => new Date(item.date).getTime()));
+  const allTimes = [...points, ...pricePoints].map((item) => new Date(item.date).getTime());
+  const minTime = Math.min(...allTimes);
+  const maxTime = Math.max(...allTimes);
   const timeRange = Math.max(maxTime - minTime, 1);
   const xAtDate = (date) => margin.left + ((new Date(date).getTime() - minTime) / timeRange) * chartWidth;
   const yAtValue = (value) => margin.top + chartHeight - (value / maxValue) * chartHeight;
-  const pathFor = (field) => points
-    .filter((item) => Number(item[field]) > 0)
-    .map((item, index) => `${index === 0 ? "M" : "L"} ${xAtDate(item.date)} ${yAtValue(item[field])}`)
+  const pricePath = pricePoints
+    .filter((item) => Number(item.price) > 0)
+    .map((item, index) => `${index === 0 ? "M" : "L"} ${xAtDate(item.date)} ${yAtValue(item.price)}`)
     .join(" ");
+  const extendedLinePathFor = (field) => {
+    const usable = points.filter((item) => Number(item[field]) > 0);
+    const segments = usable.map((item, index) => {
+      const x = xAtDate(item.date);
+      const y = yAtValue(item[field]);
+      return `${index === 0 ? "M" : "L"} ${x} ${y}`;
+    });
+    const latest = usable[usable.length - 1];
+    if (latest && Number(latest[field]) > 0) {
+      segments.push(`L ${width - margin.right} ${yAtValue(latest[field])}`);
+    }
+    return segments.join(" ");
+  };
+  const negativeFcfMarkers = points
+    .filter((item) => Number(item.ttm_fcf) < 0 || [
+      item.conservative_value,
+      item.neutral_value,
+      item.optimistic_value,
+      item.safety_buy_price,
+    ].some((value) => Number(value) < 0))
+    .map((item) => {
+      const x = xAtDate(item.date);
+      const y = height - margin.bottom - 12;
+      return [
+        `<g class="valuation-negative-marker">`,
+        `<title>${item.date}: 该报告期 TTM FCF < 0</title>`,
+        `<line x1="${x}" y1="${y - 10}" x2="${x}" y2="${y + 10}" />`,
+        `<circle cx="${x}" cy="${y}" r="5" />`,
+        `</g>`,
+      ].join("");
+    });
+  const negativeFcfNote = negativeFcfMarkers.length
+    ? svgText(width - margin.right - 180, margin.top - 14, "橙色标记：TTM FCF < 0", "valuation-negative-note")
+    : "";
   const grid = [];
+  const xLabels = [];
+  const yearGuides = [];
   for (let i = 0; i <= 4; i += 1) {
     const y = margin.top + (chartHeight / 4) * i;
     const value = Math.round(maxValue - (maxValue / 4) * i);
     grid.push(`<line x1="${margin.left}" y1="${y}" x2="${width - margin.right}" y2="${y}" class="grid-line" />`);
     grid.push(svgText(24, y + 4, value.toLocaleString("zh-CN"), "valuation-tick"));
   }
+  const startYear = new Date(minTime).getFullYear();
+  const endYear = new Date(maxTime).getFullYear();
+  for (let year = startYear; year <= endYear; year += 1) {
+    const x = xAtDate(`${year}-01-01`);
+    if (x >= margin.left && x <= width - margin.right) {
+      yearGuides.push(`<line x1="${x}" y1="${margin.top}" x2="${x}" y2="${height - margin.bottom}" class="year-guide" />`);
+      xLabels.push(svgText(x - 18, height - 30, String(year), "year-label"));
+    }
+  }
   valuationSvg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   valuationSvg.innerHTML = [
     ...grid,
+    ...yearGuides,
     `<line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" class="axis-line" />`,
-    `<path d="${pathFor("optimistic_value")}" class="valuation-line optimistic" />`,
-    `<path d="${pathFor("neutral_value")}" class="valuation-line neutral" />`,
-    `<path d="${pathFor("conservative_value")}" class="valuation-line conservative" />`,
-    `<path d="${pathFor("safety_buy_price")}" class="valuation-line safety" />`,
-    `<path d="${pathFor("price")}" class="valuation-line price" />`,
+    `<path d="${extendedLinePathFor("optimistic_value")}" class="valuation-line optimistic" />`,
+    `<path d="${extendedLinePathFor("neutral_value")}" class="valuation-line neutral" />`,
+    `<path d="${extendedLinePathFor("conservative_value")}" class="valuation-line conservative" />`,
+    `<path d="${extendedLinePathFor("safety_buy_price")}" class="valuation-line safety" />`,
+    `<path d="${pricePath}" class="valuation-line price" />`,
+    ...negativeFcfMarkers,
+    negativeFcfNote,
+    ...xLabels,
   ].join("");
 }
 

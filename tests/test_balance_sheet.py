@@ -41,7 +41,7 @@ class BalanceSheetDashboardTest(unittest.TestCase):
 
         self.assertEqual(assumptions["forecast_years"], 5)
         self.assertEqual(assumptions["cash_flow_basis"], "ttm_fcf")
-        self.assertEqual(assumptions["alignment"], "report_period")
+        self.assertEqual(assumptions["alignment"], "latest_share_count")
 
     def test_parse_valuation_assumptions_rejects_invalid_discount_rate(self):
         params = {"discount_rate": ["0.02"], "perpetual_growth_rate": ["0.03"]}
@@ -90,7 +90,7 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             "discount_rate": 0.10,
             "perpetual_growth_rate": 0.02,
             "safety_margin": 0.25,
-            "alignment": "report_period",
+            "alignment": "latest_share_count",
         }
         dates = ["2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31"]
         cash_reports = [
@@ -150,7 +150,7 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             round((payload["points"][0]["neutral_value"] - 12.0) / payload["points"][0]["neutral_value"] * 100, 2),
         )
 
-    def test_build_valuation_payload_uses_period_specific_total_shares(self):
+    def test_build_valuation_payload_uses_latest_total_shares_for_all_periods(self):
         assumptions = {
             "cash_flow_basis": "ttm_fcf",
             "forecast_years": 5,
@@ -160,7 +160,7 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             "discount_rate": 0.10,
             "perpetual_growth_rate": 0.02,
             "safety_margin": 0.25,
-            "alignment": "report_period",
+            "alignment": "latest_share_count",
         }
         cash_reports = [
             {"report_date": "2024-03-31", "items": {"经营活动产生的现金流量净额": 100000000, "购建固定资产、无形资产和其他长期资产支付的现金": 0}},
@@ -197,9 +197,12 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             assumptions,
         )
 
-        self.assertEqual(payload["points"][0]["total_shares"], 100000000)
+        self.assertEqual(payload["points"][0]["total_shares"], 200000000)
         self.assertEqual(payload["points"][1]["total_shares"], 200000000)
-        self.assertGreater(payload["points"][0]["neutral_value"], payload["points"][1]["neutral_value"])
+        self.assertEqual(payload["points"][0]["share_count_date"], "2025-03-31")
+        self.assertEqual(payload["points"][1]["share_count_date"], "2025-03-31")
+        self.assertEqual(payload["share_count_basis"], "latest_share_count")
+        self.assertEqual(payload["price_adjustment"], "front_adjusted")
         self.assertIn("pe_ttm", payload["summary"])
         self.assertIn("pb", payload["summary"])
         self.assertIn("ps_ttm", payload["summary"])
@@ -216,7 +219,7 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             "discount_rate": 0.10,
             "perpetual_growth_rate": 0.02,
             "safety_margin": 0.25,
-            "alignment": "report_period",
+            "alignment": "latest_share_count",
         }
         dates = ["2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31"]
         cash_reports = [
@@ -264,6 +267,65 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         self.assertIsNone(summary["current_price"])
         self.assertIsNone(summary["discount_to_neutral_pct"])
 
+    def test_valuation_payload_keeps_weekly_prices_through_latest_close(self):
+        import app
+
+        assumptions = {
+            "cash_flow_basis": "ttm_fcf",
+            "forecast_years": 5,
+            "growth_conservative": 0.0,
+            "growth_neutral": 0.0,
+            "growth_optimistic": 0.0,
+            "discount_rate": 0.10,
+            "perpetual_growth_rate": 0.02,
+            "safety_margin": 0.25,
+            "alignment": "latest_share_count",
+        }
+        cash_reports = [
+            {
+                "report_date": date,
+                "items": {
+                    app.OPERATING_CASH_FLOW_FIELDS[0]: 100000000,
+                    app.CAPEX_FIELDS[0]: 0,
+                },
+            }
+            for date in ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31"]
+        ]
+        balance_reports = [
+            {
+                "report_date": "2026-03-31",
+                "items": {
+                    app.SHARE_CAPITAL_FIELDS[0]: 100000000,
+                    app.EQUITY_FIELDS[0]: 1000000000,
+                },
+            }
+        ]
+        income_reports = [
+            {"report_date": "2026-03-31", "items": {app.NET_PROFIT_FIELDS[0]: 50000000}},
+        ]
+        prices = [
+            {"date": "2026-03-31", "close": 10.0},
+            {"date": "2026-04-03", "close": 11.0},
+            {"date": "2026-04-10", "close": 12.0},
+        ]
+        share_points = app.build_share_points_from_balance_reports(balance_reports)
+
+        payload = build_valuation_payload(
+            "002245",
+            "蔚蓝锂芯",
+            income_reports,
+            balance_reports,
+            cash_reports,
+            prices,
+            share_points,
+            assumptions,
+        )
+
+        self.assertEqual(payload["points"][-1]["date"], "2026-03-31")
+        self.assertEqual(payload["price_points"][-1], {"date": "2026-04-10", "price": 12.0})
+        self.assertEqual(payload["summary"]["current_price"], 12.0)
+        self.assertEqual(payload["summary"]["market_cap_yi"], 12.0)
+
     def test_builds_ttm_free_cash_flow_from_cumulative_cash_flow_reports(self):
         reports = [
             {
@@ -307,6 +369,44 @@ class BalanceSheetDashboardTest(unittest.TestCase):
 
         self.assertEqual(points[0], {"date": "2024-12-31", "ttm_fcf": 5000000000})
         self.assertEqual(points[1], {"date": "2025-03-31", "ttm_fcf": 5200000000})
+
+    def test_ttm_free_cash_flow_subtracts_sina_capex_field_with_suo(self):
+        import app
+
+        reports = [
+            {
+                "report_date": "2025-06-30",
+                "items": {
+                    app.OPERATING_CASH_FLOW_FIELDS[0]: 410000000,
+                    "购建固定资产、无形资产和其他长期资产所支付的现金": 213000000,
+                },
+            },
+            {
+                "report_date": "2025-09-30",
+                "items": {
+                    app.OPERATING_CASH_FLOW_FIELDS[0]: 717000000,
+                    "购建固定资产、无形资产和其他长期资产所支付的现金": 315000000,
+                },
+            },
+            {
+                "report_date": "2025-12-31",
+                "items": {
+                    app.OPERATING_CASH_FLOW_FIELDS[0]: 1256000000,
+                    "购建固定资产、无形资产和其他长期资产所支付的现金": 692000000,
+                },
+            },
+            {
+                "report_date": "2026-03-31",
+                "items": {
+                    app.OPERATING_CASH_FLOW_FIELDS[0]: 193000000,
+                    "购建固定资产、无形资产和其他长期资产所支付的现金": 213000000,
+                },
+            },
+        ]
+
+        points = build_ttm_free_cash_flow_points(reports)
+
+        self.assertEqual(points[-1], {"date": "2026-03-31", "ttm_fcf": 544000000})
 
     def test_dcf_value_uses_growth_discount_and_terminal_value(self):
         value = dcf_value(
@@ -541,7 +641,7 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         self.assertEqual(calls, ["eastmoney", "mootdx"])
         self.assertEqual(prices, [{"date": "2024-12-31", "close": 40.0}])
 
-    def test_valuation_daily_closes_falls_back_to_baidu_when_eastmoney_and_mootdx_fail(self):
+    def test_valuation_daily_closes_uses_front_adjusted_eastmoney_before_fallbacks(self):
         import app
 
         calls = []
@@ -549,20 +649,16 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         original_mootdx = app.fetch_mootdx_daily_closes
         original_baidu = app.fetch_baidu_daily_closes
         try:
-            def fail_eastmoney(code, start, end):
-                calls.append("eastmoney")
-                raise RuntimeError("eastmoney unavailable")
-
-            def fail_mootdx(code, start, end):
-                calls.append("mootdx")
-                raise RuntimeError("mootdx unavailable")
+            def fake_eastmoney(code, start, end):
+                calls.append("eastmoney_qfq")
+                return [{"date": "2024-12-31", "close": 39.0}]
 
             def fake_baidu(code, start, end):
                 calls.append("baidu")
                 return [{"date": "2024-12-31", "close": 40.0}]
 
-            app.fetch_front_adjusted_daily_closes = fail_eastmoney
-            app.fetch_mootdx_daily_closes = fail_mootdx
+            app.fetch_front_adjusted_daily_closes = fake_eastmoney
+            app.fetch_mootdx_daily_closes = lambda code, start, end: calls.append("mootdx") or []
             app.fetch_baidu_daily_closes = fake_baidu
 
             prices = app.fetch_valuation_daily_closes("002594", "2024-01-01", "2024-12-31")
@@ -571,8 +667,10 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             app.fetch_mootdx_daily_closes = original_mootdx
             app.fetch_baidu_daily_closes = original_baidu
 
-        self.assertEqual(calls, ["eastmoney", "mootdx", "baidu"])
-        self.assertEqual(prices, [{"date": "2024-12-31", "close": 40.0}])
+        self.assertEqual(calls, ["eastmoney_qfq"])
+        self.assertEqual(prices, [{"date": "2024-12-31", "close": 39.0}])
+
+        self.assertEqual(calls, ["eastmoney_qfq"])
 
     def test_revenue_price_extends_prices_to_latest_complete_trading_day(self):
         import app

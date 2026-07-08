@@ -468,6 +468,19 @@ h1 {
   fill: #667085;
 }
 
+.valuation-negative-marker line,
+.valuation-negative-marker circle {
+  fill: #fff;
+  stroke: #f97316;
+  stroke-width: 2;
+}
+
+.valuation-negative-note {
+  fill: #c2410c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 @media (max-width: 820px) {
   .shell {
     width: 100%;

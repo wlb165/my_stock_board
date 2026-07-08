@@ -125,7 +125,10 @@ OPERATING_CASH_FLOW_FIELDS = [
     "\u7ecf\u8425\u6d3b\u52a8\u4ea7\u751f\u7684\u73b0\u91d1\u6d41\u91cf\u51c0\u989d",
     "\u7ecf\u8425\u6d3b\u52a8\u73b0\u91d1\u6d41\u91cf\u51c0\u989d",
 ]
-CAPEX_FIELDS = ["\u8d2d\u5efa\u56fa\u5b9a\u8d44\u4ea7\u3001\u65e0\u5f62\u8d44\u4ea7\u548c\u5176\u4ed6\u957f\u671f\u8d44\u4ea7\u652f\u4ed8\u7684\u73b0\u91d1"]
+CAPEX_FIELDS = [
+    "\u8d2d\u5efa\u56fa\u5b9a\u8d44\u4ea7\u3001\u65e0\u5f62\u8d44\u4ea7\u548c\u5176\u4ed6\u957f\u671f\u8d44\u4ea7\u6240\u652f\u4ed8\u7684\u73b0\u91d1",
+    "\u8d2d\u5efa\u56fa\u5b9a\u8d44\u4ea7\u3001\u65e0\u5f62\u8d44\u4ea7\u548c\u5176\u4ed6\u957f\u671f\u8d44\u4ea7\u652f\u4ed8\u7684\u73b0\u91d1",
+]
 NET_PROFIT_FIELDS = ["净利润", "归属于母公司所有者的净利润"]
 EQUITY_FIELDS = ["所有者权益合计", "归属于母公司所有者权益合计"]
 
@@ -255,7 +258,7 @@ def parse_valuation_assumptions(params):
         "discount_rate": parse_rate(params, "discount_rate", 0.10),
         "perpetual_growth_rate": parse_rate(params, "perpetual_growth_rate", 0.025),
         "safety_margin": parse_rate(params, "safety_margin", 0.25),
-        "alignment": "report_period",
+        "alignment": "latest_share_count",
     }
     dcf_value(
         1.0,
@@ -303,6 +306,12 @@ def closest_report_on_or_before(reports, report_date):
     return ordered[index]
 
 
+def latest_share_point(share_points):
+    if not share_points:
+        return None
+    return sorted(share_points, key=lambda item: item["date"])[-1]
+
+
 def ttm_value_by_date(reports, value_fn):
     quarters = quarterly_from_cumulative(reports, value_fn)
     values = {}
@@ -328,14 +337,12 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
     fcf_points = build_ttm_free_cash_flow_points(cash_reports)
     revenue_ttm = ttm_value_by_date(income_reports, revenue_value)
     net_profit_ttm = ttm_value_by_date(income_reports, net_profit_value)
+    share_point = latest_share_point(share_points)
+    total_shares = parse_number(share_point.get("total_shares")) if share_point else None
     points = []
 
     for fcf_point in fcf_points:
         date = fcf_point["date"]
-        share_point = closest_share_on_or_before(share_points, date)
-        if not share_point:
-            continue
-        total_shares = parse_number(share_point.get("total_shares"))
         if not total_shares:
             continue
         price = closest_close_on_or_before(prices, date)
@@ -372,6 +379,7 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
                 "market_cap_yi": round(market_cap / 100000000, 2) if market_cap is not None else None,
                 "ttm_fcf": round(ttm_fcf, 2),
                 "total_shares": total_shares,
+                "share_count_date": share_point.get("date"),
                 "share_count_source": share_point.get(
                     "share_count_source",
                     share_point.get("source", "provided_share_points"),
@@ -388,8 +396,16 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
             }
         )
 
+    price_points = sample_weekly_prices(prices)
     latest = points[-1] if points else {}
-    current_price = latest.get("price")
+    latest_price = price_points[-1] if price_points else {}
+    current_price = latest_price.get("price", latest.get("price"))
+    latest_total_shares = parse_number(latest.get("total_shares"))
+    market_cap_yi = (
+        round(current_price * latest_total_shares / 100000000, 2)
+        if current_price and latest_total_shares
+        else latest.get("market_cap_yi")
+    )
     neutral_value = latest.get("neutral_value")
     discount_to_neutral_pct = (
         round((neutral_value - current_price) / neutral_value * 100, 2)
@@ -400,11 +416,13 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
         "company": {"code": code, "name": name or code},
         "assumptions": assumptions,
         "points": points,
+        "price_points": price_points,
         "summary": {
             "date": latest.get("date"),
-            "price": latest.get("price"),
-            "current_price": latest.get("price"),
-            "market_cap_yi": latest.get("market_cap_yi"),
+            "price": current_price,
+            "current_price": current_price,
+            "current_price_date": latest_price.get("date", latest.get("date")),
+            "market_cap_yi": market_cap_yi,
             "neutral_value": latest.get("neutral_value"),
             "safety_buy_price": latest.get("safety_buy_price"),
             "discount_to_neutral_pct": discount_to_neutral_pct,
@@ -413,6 +431,9 @@ def build_valuation_payload(code, name, income_reports, balance_reports, cash_re
             "ps_ttm": latest.get("ps_ttm"),
         },
         "share_count_source": latest.get("share_count_source", "unavailable"),
+        "share_count_date": latest.get("share_count_date"),
+        "share_count_basis": "latest_share_count",
+        "price_adjustment": "front_adjusted",
         "cash_flow_basis": assumptions["cash_flow_basis"],
         "alignment": assumptions["alignment"],
     }
@@ -492,13 +513,13 @@ def fetch_cash_flow_reports(code, limit=32):
     return fetch_sina_financial_report(code, "llb", limit)
 
 
-def fetch_eastmoney_front_adjusted_daily_closes(code, start_date, end_date):
+def fetch_eastmoney_daily_closes(code, start_date, end_date, adjustment):
     market = "1" if code.startswith(("6", "9")) else "0"
     params = urlencode(
         {
             "secid": f"{market}.{code}",
             "klt": "101",
-            "fqt": "1",
+            "fqt": adjustment,
             "beg": start_date.replace("-", ""),
             "end": end_date.replace("-", ""),
             "fields1": "f1,f2,f3,f4,f5,f6",
@@ -517,6 +538,15 @@ def fetch_eastmoney_front_adjusted_daily_closes(code, start_date, end_date):
         if len(parts) >= 3:
             prices.append({"date": parts[0], "close": parse_number(parts[2])})
     return prices
+
+
+def fetch_eastmoney_front_adjusted_daily_closes(code, start_date, end_date):
+    return fetch_eastmoney_daily_closes(code, start_date, end_date, "1")
+
+
+def fetch_eastmoney_unadjusted_daily_closes(code, start_date, end_date):
+    return fetch_eastmoney_daily_closes(code, start_date, end_date, "0")
+
 
 def fetch_baidu_daily_closes(code, start_date, end_date):
     params = urlencode(
@@ -608,7 +638,22 @@ def fetch_resilient_daily_closes(code, start_date, end_date):
 
 
 def fetch_valuation_daily_closes(code, start_date, end_date):
-    return fetch_resilient_daily_closes(code, start_date, end_date)
+    errors = []
+    sources = [
+        ("eastmoney_qfq", fetch_front_adjusted_daily_closes),
+        ("mootdx", fetch_mootdx_daily_closes),
+        ("baidu_kline", fetch_baidu_daily_closes),
+    ]
+    for source_name, fetcher in sources:
+        try:
+            prices = fetcher(code, start_date, end_date)
+        except Exception as exc:
+            errors.append(f"{source_name}: {exc}")
+            continue
+        if prices:
+            return prices
+        errors.append(f"{source_name}: returned no daily close data")
+    raise RuntimeError("valuation daily close sources failed: " + "; ".join(errors))
 
 def fetch_front_adjusted_daily_closes(code, start_date, end_date):
     try:
@@ -617,6 +662,16 @@ def fetch_front_adjusted_daily_closes(code, start_date, end_date):
         raise RuntimeError(f"eastmoney_qfq source failed: {exc}") from exc
     if not prices:
         raise RuntimeError("eastmoney_qfq source returned no daily close data")
+    return prices
+
+
+def fetch_unadjusted_daily_closes(code, start_date, end_date):
+    try:
+        prices = fetch_eastmoney_unadjusted_daily_closes(code, start_date, end_date)
+    except Exception as exc:
+        raise RuntimeError(f"eastmoney_unadjusted source failed: {exc}") from exc
+    if not prices:
+        raise RuntimeError("eastmoney_unadjusted source returned no daily close data")
     return prices
 
 
