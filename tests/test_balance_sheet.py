@@ -5,11 +5,14 @@ from app import (
     build_dashboard_payload,
     build_revenue_price_payload,
     build_ttm_free_cash_flow_points,
+    build_valuation_payload,
     closest_close_on_or_before,
     dcf_value,
     fetch_front_adjusted_daily_closes,
     fetch_revenue_price,
     is_revenue_price_path,
+    is_valuation_path,
+    parse_valuation_assumptions,
     sample_weekly_prices,
     should_redirect_to_static_index,
     valuation_zone,
@@ -17,6 +20,87 @@ from app import (
 
 
 class BalanceSheetDashboardTest(unittest.TestCase):
+    def test_valuation_route_is_wired(self):
+        self.assertTrue(is_valuation_path("/api/valuation"))
+        self.assertFalse(is_valuation_path("/api/revenue-price"))
+
+    def test_parse_valuation_assumptions_validates_terminal_growth(self):
+        params = {
+            "forecast_years": ["5"],
+            "growth_conservative": ["0.05"],
+            "growth_neutral": ["0.10"],
+            "growth_optimistic": ["0.15"],
+            "discount_rate": ["0.10"],
+            "perpetual_growth_rate": ["0.025"],
+            "safety_margin": ["0.25"],
+        }
+
+        assumptions = parse_valuation_assumptions(params)
+
+        self.assertEqual(assumptions["forecast_years"], 5)
+        self.assertEqual(assumptions["cash_flow_basis"], "ttm_fcf")
+        self.assertEqual(assumptions["alignment"], "report_period")
+
+    def test_parse_valuation_assumptions_rejects_invalid_discount_rate(self):
+        params = {"discount_rate": ["0.02"], "perpetual_growth_rate": ["0.03"]}
+
+        with self.assertRaisesRegex(ValueError, "discount_rate"):
+            parse_valuation_assumptions(params)
+
+    def test_build_valuation_payload_uses_period_specific_total_shares(self):
+        assumptions = {
+            "cash_flow_basis": "ttm_fcf",
+            "forecast_years": 5,
+            "growth_conservative": 0.0,
+            "growth_neutral": 0.0,
+            "growth_optimistic": 0.0,
+            "discount_rate": 0.10,
+            "perpetual_growth_rate": 0.02,
+            "safety_margin": 0.25,
+            "alignment": "report_period",
+        }
+        cash_reports = [
+            {"report_date": "2024-03-31", "items": {"经营活动产生的现金流量净额": 100000000, "购建固定资产、无形资产和其他长期资产支付的现金": 0}},
+            {"report_date": "2024-06-30", "items": {"经营活动产生的现金流量净额": 200000000, "购建固定资产、无形资产和其他长期资产支付的现金": 0}},
+            {"report_date": "2024-09-30", "items": {"经营活动产生的现金流量净额": 300000000, "购建固定资产、无形资产和其他长期资产支付的现金": 0}},
+            {"report_date": "2024-12-31", "items": {"经营活动产生的现金流量净额": 400000000, "购建固定资产、无形资产和其他长期资产支付的现金": 0}},
+            {"report_date": "2025-03-31", "items": {"经营活动产生的现金流量净额": 150000000, "购建固定资产、无形资产和其他长期资产支付的现金": 0}},
+        ]
+        income_reports = [
+            {"report_date": "2024-12-31", "items": {"营业总收入": 800000000, "净利润": 100000000}},
+            {"report_date": "2025-03-31", "items": {"营业总收入": 220000000, "净利润": 25000000}},
+        ]
+        balance_reports = [
+            {"report_date": "2024-12-31", "items": {"所有者权益合计": 1000000000}},
+            {"report_date": "2025-03-31", "items": {"所有者权益合计": 1100000000}},
+        ]
+        share_points = [
+            {"date": "2024-12-31", "total_shares": 100000000},
+            {"date": "2025-03-31", "total_shares": 200000000},
+        ]
+        prices = [
+            {"date": "2024-12-31", "close": 12.0},
+            {"date": "2025-03-31", "close": 10.0},
+        ]
+
+        payload = build_valuation_payload(
+            "002594",
+            "比亚迪",
+            income_reports,
+            balance_reports,
+            cash_reports,
+            prices,
+            share_points,
+            assumptions,
+        )
+
+        self.assertEqual(payload["points"][0]["total_shares"], 100000000)
+        self.assertEqual(payload["points"][1]["total_shares"], 200000000)
+        self.assertGreater(payload["points"][0]["neutral_value"], payload["points"][1]["neutral_value"])
+        self.assertIn("pe_ttm", payload["summary"])
+        self.assertIn("pb", payload["summary"])
+        self.assertIn("ps_ttm", payload["summary"])
+
     def test_builds_ttm_free_cash_flow_from_cumulative_cash_flow_reports(self):
         reports = [
             {

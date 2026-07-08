@@ -125,6 +125,8 @@ OPERATING_CASH_FLOW_FIELDS = [
     "\u7ecf\u8425\u6d3b\u52a8\u73b0\u91d1\u6d41\u91cf\u51c0\u989d",
 ]
 CAPEX_FIELDS = ["\u8d2d\u5efa\u56fa\u5b9a\u8d44\u4ea7\u3001\u65e0\u5f62\u8d44\u4ea7\u548c\u5176\u4ed6\u957f\u671f\u8d44\u4ea7\u652f\u4ed8\u7684\u73b0\u91d1"]
+NET_PROFIT_FIELDS = ["净利润", "归属于母公司所有者的净利润"]
+EQUITY_FIELDS = ["所有者权益合计", "归属于母公司所有者权益合计"]
 
 
 def cash_flow_value(items, names):
@@ -234,6 +236,169 @@ def build_revenue_price_payload(code, name, reports, prices):
     }
 
 
+def is_valuation_path(path):
+    return path == "/api/valuation"
+
+
+def parse_rate(params, key, default):
+    return float(params.get(key, [str(default)])[0] or default)
+
+
+def parse_valuation_assumptions(params):
+    assumptions = {
+        "cash_flow_basis": "ttm_fcf",
+        "forecast_years": int(params.get("forecast_years", ["5"])[0] or 5),
+        "growth_conservative": parse_rate(params, "growth_conservative", 0.05),
+        "growth_neutral": parse_rate(params, "growth_neutral", 0.10),
+        "growth_optimistic": parse_rate(params, "growth_optimistic", 0.15),
+        "discount_rate": parse_rate(params, "discount_rate", 0.10),
+        "perpetual_growth_rate": parse_rate(params, "perpetual_growth_rate", 0.025),
+        "safety_margin": parse_rate(params, "safety_margin", 0.25),
+        "alignment": "report_period",
+    }
+    dcf_value(
+        1.0,
+        assumptions["growth_neutral"],
+        assumptions["discount_rate"],
+        assumptions["perpetual_growth_rate"],
+        assumptions["forecast_years"],
+    )
+    return assumptions
+
+
+def closest_share_on_or_before(share_points, report_date):
+    ordered = sorted(share_points, key=lambda item: item["date"])
+    dates = [item["date"] for item in ordered]
+    index = bisect_right(dates, report_date) - 1
+    if index < 0:
+        return None
+    return ordered[index]
+
+
+def closest_report_on_or_before(reports, report_date):
+    ordered = sorted(reports, key=lambda item: item["report_date"])
+    dates = [item["report_date"] for item in ordered]
+    index = bisect_right(dates, report_date) - 1
+    if index < 0:
+        return None
+    return ordered[index]
+
+
+def ttm_value_by_date(reports, value_fn):
+    quarters = quarterly_from_cumulative(reports, value_fn)
+    values = {}
+    for index in range(3, len(quarters)):
+        window = quarters[index - 3 : index + 1]
+        values[quarters[index]["date"]] = sum(item["value"] for item in window)
+    return values
+
+
+def metric_ratio(numerator, denominator):
+    return round(numerator / denominator, 2) if denominator else None
+
+
+def net_profit_value(items):
+    return field_value(items, ("first", NET_PROFIT_FIELDS))
+
+
+def equity_value(items):
+    return field_value(items, ("first", EQUITY_FIELDS))
+
+
+def build_valuation_payload(code, name, income_reports, balance_reports, cash_reports, prices, share_points, assumptions):
+    fcf_points = build_ttm_free_cash_flow_points(cash_reports)
+    revenue_ttm = ttm_value_by_date(income_reports, revenue_value)
+    net_profit_ttm = ttm_value_by_date(income_reports, net_profit_value)
+    points = []
+
+    for fcf_point in fcf_points:
+        date = fcf_point["date"]
+        share_point = closest_share_on_or_before(share_points, date)
+        if not share_point:
+            continue
+        total_shares = parse_number(share_point.get("total_shares"))
+        if not total_shares:
+            continue
+        price = closest_close_on_or_before(prices, date)
+        ttm_fcf = fcf_point["ttm_fcf"]
+        conservative = dcf_value(
+            ttm_fcf,
+            assumptions["growth_conservative"],
+            assumptions["discount_rate"],
+            assumptions["perpetual_growth_rate"],
+            assumptions["forecast_years"],
+        ) / total_shares
+        neutral = dcf_value(
+            ttm_fcf,
+            assumptions["growth_neutral"],
+            assumptions["discount_rate"],
+            assumptions["perpetual_growth_rate"],
+            assumptions["forecast_years"],
+        ) / total_shares
+        optimistic = dcf_value(
+            ttm_fcf,
+            assumptions["growth_optimistic"],
+            assumptions["discount_rate"],
+            assumptions["perpetual_growth_rate"],
+            assumptions["forecast_years"],
+        ) / total_shares
+        market_cap = price * total_shares if price else 0.0
+        balance_report = closest_report_on_or_before(balance_reports, date)
+        equity = equity_value(balance_report["items"]) if balance_report else 0.0
+
+        points.append(
+            {
+                "date": date,
+                "price": round(price, 2) if price else None,
+                "ttm_fcf": round(ttm_fcf, 2),
+                "total_shares": total_shares,
+                "share_count_source": share_point.get("source", "provided_share_points"),
+                "conservative_value": round(conservative, 2),
+                "neutral_value": round(neutral, 2),
+                "optimistic_value": round(optimistic, 2),
+                "safety_price": round(neutral * (1 - assumptions["safety_margin"]), 2),
+                "zone": valuation_zone(price, conservative, neutral, optimistic) if price else None,
+                "pe_ttm": metric_ratio(market_cap, net_profit_ttm.get(date)),
+                "pb": metric_ratio(market_cap, equity),
+                "ps_ttm": metric_ratio(market_cap, revenue_ttm.get(date)),
+            }
+        )
+
+    latest = points[-1] if points else {}
+    return {
+        "company": {"code": code, "name": name or code},
+        "assumptions": assumptions,
+        "points": points,
+        "summary": {
+            "date": latest.get("date"),
+            "price": latest.get("price"),
+            "neutral_value": latest.get("neutral_value"),
+            "pe_ttm": latest.get("pe_ttm"),
+            "pb": latest.get("pb"),
+            "ps_ttm": latest.get("ps_ttm"),
+        },
+        "share_count_source": latest.get("share_count_source", "unavailable"),
+        "cash_flow_basis": assumptions["cash_flow_basis"],
+        "alignment": assumptions["alignment"],
+    }
+
+
+def derive_share_points_from_market_cap(prices):
+    share_points = []
+    for item in prices:
+        close = parse_number(item.get("close"))
+        market_cap = parse_number(item.get("market_cap") or item.get("total_market_cap"))
+        if close and market_cap:
+            share_points.append(
+                {
+                    "date": item["date"],
+                    "total_shares": market_cap / close,
+                    "source": "market_cap_divided_by_close",
+                }
+            )
+    return share_points
+
+
 def stock_prefix(code):
     return "sh" if code.startswith(("6", "9")) else "sz"
 
@@ -286,6 +451,10 @@ def fetch_sina_financial_report(code, report_type, limit=8):
 
 def fetch_income_reports(code, limit=32):
     return fetch_sina_financial_report(code, "lrb", limit)
+
+
+def fetch_cash_flow_reports(code, limit=32):
+    return fetch_sina_financial_report(code, "llb", limit)
 
 
 def fetch_eastmoney_front_adjusted_daily_closes(code, start_date, end_date):
@@ -344,6 +513,39 @@ def fetch_revenue_price(code, name, limit=32, today=None):
     return build_revenue_price_payload(code, name, reports, prices)
 
 
+def fetch_valuation(code, name, assumptions, limit=32, today=None):
+    try:
+        income_reports = fetch_income_reports(code, limit)
+        balance_reports = fetch_balance_sheet(code, limit)
+        cash_reports = fetch_cash_flow_reports(code, limit)
+    except Exception as exc:
+        raise RuntimeError(f"financial report source failed: {exc}") from exc
+    report_dates = [report["report_date"] for report in income_reports + balance_reports + cash_reports]
+    if not report_dates:
+        raise ValueError("未取到估值所需财报数据")
+    start_date = (datetime.strptime(min(report_dates), "%Y-%m-%d") - timedelta(days=10)).strftime("%Y-%m-%d")
+    today = today or datetime.now().strftime("%Y-%m-%d")
+    try:
+        prices = fetch_front_adjusted_daily_closes(code, start_date, today)
+        prices = [item for item in prices if item.get("date", "") < today]
+    except Exception as exc:
+        raise RuntimeError(f"daily close source failed: {exc}") from exc
+    share_points = derive_share_points_from_market_cap(prices)
+    payload = build_valuation_payload(
+        code,
+        name,
+        income_reports,
+        balance_reports,
+        cash_reports,
+        prices,
+        share_points,
+        assumptions,
+    )
+    if not share_points:
+        payload["share_count_source"] = "unavailable"
+    return payload
+
+
 def build_dashboard_payload(code, name, reports, index):
     safe_index = max(0, min(index, len(reports) - 1))
     current = reports[safe_index]
@@ -381,6 +583,9 @@ class StockBoardHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/balance-sheet":
             self.handle_balance_sheet(parsed.query)
             return
+        if is_valuation_path(parsed.path):
+            self.handle_valuation(parsed.query)
+            return
         if is_revenue_price_path(parsed.path):
             self.handle_revenue_price(parsed.query)
             return
@@ -414,6 +619,17 @@ class StockBoardHandler(SimpleHTTPRequestHandler):
         name = params.get("name", ["比亚迪"])[0].strip()
         try:
             payload = fetch_revenue_price(code, name)
+            self.write_json(payload)
+        except Exception as exc:
+            self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)
+
+    def handle_valuation(self, query):
+        params = parse_qs(query)
+        code = params.get("code", ["002594"])[0].strip()
+        name = params.get("name", ["比亚迪"])[0].strip()
+        try:
+            assumptions = parse_valuation_assumptions(params)
+            payload = fetch_valuation(code, name, assumptions)
             self.write_json(payload)
         except Exception as exc:
             self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)
