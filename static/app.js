@@ -21,6 +21,9 @@ const prevButton = document.querySelector("#prev-period");
 const nextButton = document.querySelector("#next-period");
 const tabButtons = document.querySelectorAll(".tab[data-view]");
 const trendSvg = document.querySelector("#trend-svg");
+const valuationPanel = document.querySelector("#valuation-panel");
+const valuationForm = document.querySelector("#valuation-form");
+const valuationSvg = document.querySelector("#valuation-svg");
 
 function yi(value) {
   return `${Number(value || 0).toLocaleString("zh-CN", {
@@ -49,6 +52,7 @@ function setLoading(isLoading) {
   loading.hidden = !isLoading;
   panel.hidden = true;
   trendPanel.hidden = true;
+  valuationPanel.hidden = true;
   error.hidden = true;
 }
 
@@ -56,6 +60,7 @@ function showError(message) {
   loading.hidden = true;
   panel.hidden = true;
   trendPanel.hidden = true;
+  valuationPanel.hidden = true;
   error.hidden = false;
   error.textContent = `读取失败：${message}`;
 }
@@ -151,6 +156,61 @@ function renderTrend(payload) {
   trendPanel.hidden = false;
 }
 
+function pctInputValue(selector) {
+  return String((Number(document.querySelector(selector).value || 0) / 100).toFixed(4));
+}
+
+function readValuationAssumptions() {
+  return {
+    forecast_years: document.querySelector("#forecast-years").value,
+    growth_conservative: pctInputValue("#growth-conservative"),
+    growth_neutral: pctInputValue("#growth-neutral"),
+    growth_optimistic: pctInputValue("#growth-optimistic"),
+    discount_rate: pctInputValue("#discount-rate"),
+    perpetual_growth_rate: pctInputValue("#perpetual-growth-rate"),
+    safety_margin: pctInputValue("#safety-margin"),
+  };
+}
+
+function ratioText(value) {
+  return value == null ? "--" : `${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}x`;
+}
+
+function renderValuation(payload) {
+  const summary = payload.summary || {};
+  setText("#valuation-current-price", yuan(summary.current_price));
+  setText("#valuation-neutral-value", yuan(summary.neutral_value));
+  setText("#valuation-discount", summary.discount_to_neutral_pct == null ? "--" : `${summary.discount_to_neutral_pct}%`);
+  setText("#valuation-safety-price", yuan(summary.safety_buy_price));
+  setText("#valuation-market-cap", yi(summary.market_cap_yi));
+  setText("#valuation-pe", ratioText(summary.pe_ttm));
+  setText("#valuation-pb", ratioText(summary.pb));
+  setText("#valuation-ps", ratioText(summary.ps_ttm));
+  drawValuationChart(payload.points || [], payload.price_points || []);
+  loading.hidden = true;
+  error.hidden = true;
+  valuationPanel.hidden = false;
+}
+
+function showValuationDashboard() {
+  [
+    "#valuation-current-price",
+    "#valuation-neutral-value",
+    "#valuation-discount",
+    "#valuation-safety-price",
+    "#valuation-market-cap",
+    "#valuation-pe",
+    "#valuation-pb",
+    "#valuation-ps",
+  ].forEach((selector) => setText(selector, "--"));
+  valuationSvg.innerHTML = "";
+  loading.hidden = true;
+  error.hidden = true;
+  panel.hidden = true;
+  trendPanel.hidden = true;
+  valuationPanel.hidden = false;
+}
+
 function axisMax(values) {
   return niceChartMax(values.map((value) => ({ value })));
 }
@@ -241,6 +301,104 @@ function drawTrendChart(revenuePoints, pricePoints) {
   ].join("");
 }
 
+function drawValuationChart(points, pricePoints) {
+  if (!points.length && !pricePoints.length) {
+    valuationSvg.innerHTML = "";
+    return;
+  }
+  const width = 1120;
+  const height = 520;
+  const margin = { top: 42, right: 52, bottom: 64, left: 78 };
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = height - margin.top - margin.bottom;
+  const values = [
+    ...pricePoints.map((item) => item.price),
+    ...points.flatMap((item) => [
+    item.conservative_value,
+    item.neutral_value,
+    item.optimistic_value,
+    item.safety_buy_price,
+    ]),
+  ].filter((value) => Number(value) > 0);
+  const maxValue = axisMax(values);
+  const allTimes = [...points, ...pricePoints].map((item) => new Date(item.date).getTime());
+  const minTime = Math.min(...allTimes);
+  const maxTime = Math.max(...allTimes);
+  const timeRange = Math.max(maxTime - minTime, 1);
+  const xAtDate = (date) => margin.left + ((new Date(date).getTime() - minTime) / timeRange) * chartWidth;
+  const yAtValue = (value) => margin.top + chartHeight - (value / maxValue) * chartHeight;
+  const pricePath = pricePoints
+    .filter((item) => Number(item.price) > 0)
+    .map((item, index) => `${index === 0 ? "M" : "L"} ${xAtDate(item.date)} ${yAtValue(item.price)}`)
+    .join(" ");
+  const extendedLinePathFor = (field) => {
+    const usable = points.filter((item) => Number(item[field]) > 0);
+    const segments = usable.map((item, index) => {
+      const x = xAtDate(item.date);
+      const y = yAtValue(item[field]);
+      return `${index === 0 ? "M" : "L"} ${x} ${y}`;
+    });
+    const latest = usable[usable.length - 1];
+    if (latest && Number(latest[field]) > 0) {
+      segments.push(`L ${width - margin.right} ${yAtValue(latest[field])}`);
+    }
+    return segments.join(" ");
+  };
+  const negativeFcfMarkers = points
+    .filter((item) => Number(item.ttm_fcf) < 0 || [
+      item.conservative_value,
+      item.neutral_value,
+      item.optimistic_value,
+      item.safety_buy_price,
+    ].some((value) => Number(value) < 0))
+    .map((item) => {
+      const x = xAtDate(item.date);
+      const y = height - margin.bottom - 12;
+      return [
+        `<g class="valuation-negative-marker">`,
+        `<title>${item.date}: 该报告期 TTM FCF < 0</title>`,
+        `<line x1="${x}" y1="${y - 10}" x2="${x}" y2="${y + 10}" />`,
+        `<circle cx="${x}" cy="${y}" r="5" />`,
+        `</g>`,
+      ].join("");
+    });
+  const negativeFcfNote = negativeFcfMarkers.length
+    ? svgText(width - margin.right - 180, margin.top - 14, "橙色标记：TTM FCF < 0", "valuation-negative-note")
+    : "";
+  const grid = [];
+  const xLabels = [];
+  const yearGuides = [];
+  for (let i = 0; i <= 4; i += 1) {
+    const y = margin.top + (chartHeight / 4) * i;
+    const value = Math.round(maxValue - (maxValue / 4) * i);
+    grid.push(`<line x1="${margin.left}" y1="${y}" x2="${width - margin.right}" y2="${y}" class="grid-line" />`);
+    grid.push(svgText(24, y + 4, value.toLocaleString("zh-CN"), "valuation-tick"));
+  }
+  const startYear = new Date(minTime).getFullYear();
+  const endYear = new Date(maxTime).getFullYear();
+  for (let year = startYear; year <= endYear; year += 1) {
+    const x = xAtDate(`${year}-01-01`);
+    if (x >= margin.left && x <= width - margin.right) {
+      yearGuides.push(`<line x1="${x}" y1="${margin.top}" x2="${x}" y2="${height - margin.bottom}" class="year-guide" />`);
+      xLabels.push(svgText(x - 18, height - 30, String(year), "year-label"));
+    }
+  }
+  valuationSvg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  valuationSvg.innerHTML = [
+    ...grid,
+    ...yearGuides,
+    `<line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" class="axis-line" />`,
+    `<path d="${extendedLinePathFor("optimistic_value")}" class="valuation-line optimistic" />`,
+    `<path d="${extendedLinePathFor("neutral_value")}" class="valuation-line neutral" />`,
+    `<path d="${extendedLinePathFor("conservative_value")}" class="valuation-line conservative" />`,
+    `<path d="${extendedLinePathFor("safety_buy_price")}" class="valuation-line safety" />`,
+    `<path d="${pricePath}" class="valuation-line price" />`,
+    ...negativeFcfMarkers,
+    negativeFcfNote,
+    ...xLabels,
+  ].join("");
+}
+
 async function fetchWithTimeout(url, timeoutMs = 20000) {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -316,8 +474,39 @@ async function loadTrendDashboard() {
   }
 }
 
+async function loadValuationDashboard() {
+  syncStockInputs();
+  if (window.location.protocol === "file:") {
+    showError("Open http://127.0.0.1:8765 instead of static/index.html");
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const params = new URLSearchParams({
+      code: state.code,
+      name: state.name,
+      ...readValuationAssumptions(),
+    });
+    const response = await fetchWithTimeout(`/api/valuation?${params.toString()}`, 30000);
+    const payload = await readJsonResponse(response);
+    if (!response.ok || payload.error) {
+      showError(payload.error || "Empty API response");
+      return;
+    }
+    renderValuation(payload);
+  } catch (err) {
+    const message = err.name === "AbortError" ? "API timeout; confirm the local service and network are available" : err.message;
+    showError(message || "API request failed");
+  }
+}
+
 function loadActiveDashboard() {
   periodActions.hidden = state.view !== "balance";
+  if (state.view === "valuation") {
+    showValuationDashboard();
+    return;
+  }
   if (state.view === "trend") {
     loadTrendDashboard();
     return;
@@ -341,6 +530,11 @@ form.addEventListener("submit", (event) => {
   syncStockInputs();
   state.index = 0;
   loadActiveDashboard();
+});
+
+valuationForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  loadValuationDashboard();
 });
 
 currentButton.addEventListener("click", () => {

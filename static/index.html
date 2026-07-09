@@ -23,6 +23,7 @@
       <nav class="tabs" aria-label="看板页签">
         <button class="tab active" type="button" data-view="balance">资产负债表</button>
         <button class="tab" type="button" data-view="trend">股价与营收</button>
+        <button class="tab" type="button" data-view="valuation">估值</button>
         <button class="tab" type="button" data-view="basic">基本信息</button>
       </nav>
 
@@ -104,6 +105,59 @@
             <span><i class="asset-dot"></i>年化总营收</span>
             <span><i class="line-dot"></i>东财前复权股价</span>
             <span>营收单位：亿元；股价单位：元</span>
+          </div>
+        </section>
+
+        <section id="valuation-panel" class="valuation-panel" hidden>
+          <form id="valuation-form" class="valuation-form">
+            <label>预测年限
+              <select id="forecast-years">
+                <option value="3">3 年</option>
+                <option value="5" selected>5 年</option>
+                <option value="10">10 年</option>
+              </select>
+            </label>
+            <label>保守增长率
+              <input id="growth-conservative" type="number" value="5" step="0.5" />
+            </label>
+            <label>中性增长率
+              <input id="growth-neutral" type="number" value="10" step="0.5" />
+            </label>
+            <label>乐观增长率
+              <input id="growth-optimistic" type="number" value="15" step="0.5" />
+            </label>
+            <label>折现率
+              <input id="discount-rate" type="number" value="10" step="0.5" />
+            </label>
+            <label>永续增长率
+              <input id="perpetual-growth-rate" type="number" value="2.5" step="0.5" />
+            </label>
+            <label>安全边际
+              <input id="safety-margin" type="number" value="25" step="1" />
+            </label>
+            <button type="submit">生成估值</button>
+          </form>
+
+          <div class="summary-grid valuation-summary">
+            <div><span>当前股价</span><strong id="valuation-current-price">--</strong></div>
+            <div><span>中性 DCF</span><strong id="valuation-neutral-value">--</strong></div>
+            <div><span>折价/溢价</span><strong id="valuation-discount">--</strong></div>
+            <div><span>安全买入价</span><strong id="valuation-safety-price">--</strong></div>
+          </div>
+
+          <div class="valuation-chart-wrap">
+            <svg id="valuation-svg" role="img" aria-label="DCF 估值带与股价走势"></svg>
+          </div>
+          <div class="legend">
+            <span><i class="line-dot"></i>前复权历史收盘价</span>
+            <span>历史 DCF 每股值按最新股本重算</span>
+          </div>
+
+          <div class="summary-grid valuation-ratios">
+            <div><span>当前市值</span><strong id="valuation-market-cap">--</strong></div>
+            <div><span>PE</span><strong id="valuation-pe">--</strong></div>
+            <div><span>PB</span><strong id="valuation-pb">--</strong></div>
+            <div><span>PS</span><strong id="valuation-ps">--</strong></div>
           </div>
         </section>
       </section>
