@@ -1,10 +1,11 @@
 from bisect import bisect_right
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 import json
+import re
 import time
 
 
@@ -217,6 +218,74 @@ def sample_weekly_prices(prices):
         week_key = datetime.strptime(date, "%Y-%m-%d").isocalendar()[:2]
         weekly[week_key] = {"date": date, "price": round(close, 2)}
     return list(weekly.values())
+
+
+MAX_COMPARISON_STOCKS = 6
+COMPARISON_PERIOD_DAYS = {"6m": 181, "1y": 365, "3y": 365 * 3, "5y": 365 * 5}
+
+
+def parse_stock_codes(raw_codes, limit=MAX_COMPARISON_STOCKS):
+    codes = []
+    errors = []
+    for code in re.split(r"[,\s]+", raw_codes or ""):
+        if not code:
+            continue
+        if not re.fullmatch(r"\d{6}", code):
+            errors.append({"code": code, "message": "Invalid stock code"})
+            continue
+        if code in codes:
+            continue
+        if len(codes) >= limit:
+            errors.append({"code": code, "message": f"Only the first {limit} stock codes are used"})
+            continue
+        codes.append(code)
+    return codes, errors
+
+
+def normalize_comparison_period(period):
+    return period if period in COMPARISON_PERIOD_DAYS else "1y"
+
+
+def period_start_date(period, today=None):
+    current = today or date.today()
+    period = normalize_comparison_period(period)
+    if period == "6m":
+        return (current - timedelta(days=181)).isoformat()
+    if period in ("1y", "3y", "5y"):
+        return current.replace(year=current.year - int(period[0])).isoformat()
+    return (current - timedelta(days=COMPARISON_PERIOD_DAYS[period])).isoformat()
+
+
+def filter_prices_from(prices, start_date):
+    return [item for item in prices if item.get("date", "") >= start_date]
+
+
+def build_comparison_series(code, name, weekly_prices):
+    prices = []
+    for item in sorted(weekly_prices, key=lambda row: row["date"]):
+        price = parse_number(item.get("price"))
+        if price > 0:
+            prices.append({"date": item["date"], "price": round(price, 2)})
+    if not prices:
+        raise ValueError("No price data")
+
+    first_price = prices[0]["price"]
+    points = []
+    for item in prices:
+        change_pct = (item["price"] - first_price) / first_price * 100
+        points.append({"date": item["date"], "price": item["price"], "change_pct": round(change_pct, 2)})
+    return {
+        "code": code,
+        "name": name,
+        "points": points,
+        "summary": {
+            "latest_price": prices[-1]["price"],
+            "period_change_pct": round((prices[-1]["price"] - first_price) / first_price * 100, 2),
+            "period_high": max(item["price"] for item in prices),
+            "period_low": min(item["price"] for item in prices),
+            "point_count": len(prices),
+        },
+    }
 
 
 def build_revenue_price_payload(code, name, reports, prices):

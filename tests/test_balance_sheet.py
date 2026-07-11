@@ -1,6 +1,8 @@
 import sys
+from datetime import date
 import types
 import unittest
+import app
 
 from app import (
     annualization_factor,
@@ -22,6 +24,35 @@ from app import (
 
 
 class BalanceSheetDashboardTest(unittest.TestCase):
+    def test_parse_stock_codes_deduplicates_and_limits(self):
+        codes, errors = app.parse_stock_codes("002594, 600519, bad, 002594, 300750, 000333, 601318, 000858, 600000")
+        self.assertEqual(codes, ["002594", "600519", "300750", "000333", "601318", "000858"])
+        self.assertEqual(errors, [
+            {"code": "bad", "message": "Invalid stock code"},
+            {"code": "600000", "message": "Only the first 6 stock codes are used"},
+        ])
+
+    def test_period_helpers_fall_back_to_one_year(self):
+        today = date(2026, 7, 11)
+        self.assertEqual(app.normalize_comparison_period("bad"), "1y")
+        self.assertEqual(app.period_start_date("6m", today), "2026-01-11")
+        self.assertEqual(app.period_start_date("1y", today), "2025-07-11")
+        self.assertEqual(app.period_start_date("3y", today), "2023-07-11")
+        self.assertEqual(app.period_start_date("5y", today), "2021-07-11")
+
+    def test_build_comparison_series_computes_change_and_summary(self):
+        series = app.build_comparison_series("002594", "BYD", [
+            {"date": "2026-01-02", "price": 100.0},
+            {"date": "2026-01-09", "price": 110.0},
+            {"date": "2026-01-16", "price": 90.0},
+        ])
+        self.assertEqual(series["code"], "002594")
+        self.assertEqual(series["points"][1]["change_pct"], 10.0)
+        self.assertEqual(series["summary"], {
+            "latest_price": 90.0, "period_change_pct": -10.0,
+            "period_high": 110.0, "period_low": 90.0, "point_count": 3,
+        })
+
     def test_valuation_route_is_wired(self):
         self.assertTrue(is_valuation_path("/api/valuation"))
         self.assertFalse(is_valuation_path("/api/revenue-price"))
