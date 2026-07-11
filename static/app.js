@@ -33,6 +33,7 @@ const stockPoolList = document.querySelector("#stock-pool-list");
 const stockSearchResults = document.querySelector("#stock-search-results");
 const multiPeriod = document.querySelector("#multi-period");
 const multiMode = document.querySelector("#multi-mode");
+const multiGenerateChart = document.querySelector("#multi-generate-chart");
 const multiTrendSvg = document.querySelector("#multi-trend-svg");
 const multiLegend = document.querySelector("#multi-legend");
 const multiSummary = document.querySelector("#multi-summary");
@@ -43,6 +44,19 @@ let multiStockPool = [
   { code: "600519", name: "贵州茅台" },
   { code: "300750", name: "宁德时代" },
 ];
+const multiStockNamesByCode = {
+  "002594": "比亚迪",
+  "600519": "贵州茅台",
+  "300750": "宁德时代",
+  "000333": "美的集团",
+  "601318": "中国平安",
+  "000858": "五粮液",
+  "600000": "浦发银行",
+  "002245": "蔚蓝锂芯",
+  "601857": "中国石油",
+  "600028": "中国石化",
+  "600938": "中国海油",
+};
 
 function yi(value) {
   return `${Number(value || 0).toLocaleString("zh-CN", {
@@ -255,6 +269,10 @@ function stockFromPoolOrSeries(item) {
   return multiStockPool.find((stock) => stock.code === item.code) || item;
 }
 
+function stockForCode(code) {
+  return { code, name: multiStockNamesByCode[code] || code };
+}
+
 function syncMultiStockCodes() {
   multiStockCodes.value = multiStockPool.map((stock) => stock.code).join(",");
 }
@@ -271,28 +289,6 @@ function renderStockPool() {
     button.addEventListener("click", () => {
       multiStockPool = multiStockPool.filter((stock) => stock.code !== button.dataset.removeStock);
       renderStockPool();
-      if (state.view === "multi-trend") {
-        loadMultiTrendDashboard();
-      }
-    });
-  });
-}
-
-function showStockSearchResults(results) {
-  if (!results.length) {
-    stockSearchResults.hidden = false;
-    stockSearchResults.innerHTML = "<span>未找到股票，请输入 6 位代码</span>";
-    return;
-  }
-  stockSearchResults.hidden = false;
-  stockSearchResults.innerHTML = results.map((stock) => (
-    `<button type="button" data-add-code="${escapeHtml(stock.code)}" data-add-name="${escapeHtml(stock.name)}">
-      ${escapeHtml(stockDisplayName(stock))}
-    </button>`
-  )).join("");
-  stockSearchResults.querySelectorAll("[data-add-code]").forEach((button) => {
-    button.addEventListener("click", () => {
-      addStockToPool({ code: button.dataset.addCode, name: button.dataset.addName });
     });
   });
 }
@@ -313,23 +309,17 @@ function addStockToPool(stock) {
   multiStockQuery.value = "";
   stockSearchResults.hidden = true;
   renderStockPool();
-  if (state.view === "multi-trend") {
-    loadMultiTrendDashboard();
-  }
 }
 
-async function searchStocksForPool() {
-  const query = multiStockQuery.value.trim();
-  if (!query) return;
-  const params = new URLSearchParams({ q: query });
-  const response = await fetchWithTimeout(`/api/stock-search?${params.toString()}`, 10000);
-  const payload = await readJsonResponse(response);
-  const results = payload.results || [];
-  if (results.length === 1) {
-    addStockToPool(results[0]);
+function addStockCodeToPool() {
+  const code = multiStockQuery.value.trim();
+  if (!code) return;
+  if (!/^\d{6}$/.test(code)) {
+    stockSearchResults.hidden = false;
+    stockSearchResults.innerHTML = "<span>请输入 6 位股票代码</span>";
     return;
   }
-  showStockSearchResults(results);
+  addStockToPool(stockForCode(code));
 }
 
 async function loadMultiTrendDashboard() {
@@ -790,7 +780,7 @@ function loadActiveDashboard() {
   periodActions.hidden = state.view !== "balance";
   form.hidden = state.view === "multi-trend";
   if (state.view === "multi-trend") {
-    loadMultiTrendDashboard();
+    showMultiTrendPlaceholder();
     return;
   }
   if (state.view === "valuation") {
@@ -829,16 +819,11 @@ valuationForm.addEventListener("submit", (event) => {
 
 multiStockForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  searchStocksForPool().catch((err) => {
-    stockSearchResults.hidden = false;
-    stockSearchResults.innerHTML = `<span>${escapeHtml(err.message || "搜索失败")}</span>`;
-  });
+  addStockCodeToPool();
 });
 
-multiPeriod.addEventListener("change", () => {
-  if (state.view === "multi-trend") {
-    loadMultiTrendDashboard();
-  }
+multiGenerateChart.addEventListener("click", () => {
+  loadMultiTrendDashboard();
 });
 
 multiMode.addEventListener("change", () => {

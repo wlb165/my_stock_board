@@ -148,6 +148,7 @@ class StaticAssetsTest(unittest.TestCase):
             "multi-stock-form",
             "multi-stock-query",
             "multi-stock-codes",
+            "multi-generate-chart",
             "stock-pool-list",
             "stock-search-results",
             "multi-period",
@@ -166,9 +167,8 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertIn("loadMultiTrendDashboard", script)
         self.assertIn("renderMultiTrend", script)
         self.assertIn("drawMultiTrendChart", script)
-        self.assertIn("addStockToPool", script)
+        self.assertIn("addStockCodeToPool", script)
         self.assertIn("renderStockPool", script)
-        self.assertIn("/api/stock-search", script)
         self.assertIn("/api/multi-stock-trend", script)
 
     def test_workbench_layout_keeps_chart_inside_workspace(self):

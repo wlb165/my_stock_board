@@ -532,8 +532,9 @@ h1 {
 
 .multi-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 180px));
+  grid-template-columns: repeat(2, minmax(120px, 180px)) auto;
   gap: 12px;
+  align-items: end;
   margin-bottom: 22px;
 }
 
@@ -548,7 +549,8 @@ h1 {
 .multi-stock-form input,
 .multi-stock-form select,
 .multi-stock-form button,
-.multi-controls select {
+.multi-controls select,
+.multi-controls button {
   height: 38px;
   border: 1px solid #d6d6d6;
   border-radius: 4px;
@@ -561,6 +563,14 @@ h1 {
   color: #fff;
   border-color: var(--accent);
   background: var(--accent);
+}
+
+.multi-controls button {
+  cursor: pointer;
+  color: #fff;
+  border-color: var(--accent);
+  background: var(--accent);
+  font-weight: 700;
 }
 
 .stock-search-results {

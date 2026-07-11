@@ -167,11 +167,11 @@
 
             <section id="multi-trend-panel" class="multi-trend-panel" data-workbench-panel="multi-trend" hidden>
               <form id="multi-stock-form" class="multi-stock-form">
-                <label>搜索股票
-                  <input id="multi-stock-query" placeholder="输入代码或名称" aria-label="搜索股票代码或名称" />
+                <label>股票代码
+                  <input id="multi-stock-query" placeholder="输入 6 位代码" aria-label="股票代码" maxlength="6" />
                 </label>
                 <input id="multi-stock-codes" type="hidden" value="002594, 600519, 300750" />
-                <button type="submit">加入对比</button>
+                <button type="submit">入池</button>
               </form>
 
               <div id="stock-search-results" class="stock-search-results" hidden></div>
@@ -192,6 +192,7 @@
                     <option value="price">绝对价格</option>
                   </select>
                 </label>
+                <button id="multi-generate-chart" type="button">生图</button>
               </div>
 
               <div class="chart-title">
