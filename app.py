@@ -294,6 +294,33 @@ def build_comparison_series(code, name, weekly_prices):
     }
 
 
+def fetch_multi_stock_trend(codes_raw, period, today=None):
+    normalized_period = normalize_comparison_period(period)
+    current = today or date.today()
+    start_date = period_start_date(normalized_period, current)
+    end_date = current.isoformat()
+    codes, errors = parse_stock_codes(codes_raw)
+    series = []
+
+    for code in codes:
+        try:
+            prices = fetch_front_adjusted_daily_closes(code, start_date, end_date)
+            weekly_prices = sample_weekly_prices(filter_prices_from(prices, start_date))
+            series.append(build_comparison_series(code, code, weekly_prices))
+        except Exception as exc:
+            errors.append({"code": code, "message": str(exc) or exc.__class__.__name__})
+
+    if not codes and not errors:
+        errors.append({"code": "", "message": "No stock codes"})
+
+    return {
+        "period": normalized_period,
+        "mode_default": "percent",
+        "series": series,
+        "errors": errors,
+    }
+
+
 def build_revenue_price_payload(code, name, reports, prices):
     revenue_points = []
     for report in sorted(reports, key=lambda item: item["report_date"]):
@@ -317,6 +344,10 @@ def build_revenue_price_payload(code, name, reports, prices):
 
 def is_valuation_path(path):
     return path == "/api/valuation"
+
+
+def is_multi_stock_trend_path(path):
+    return path == "/api/multi-stock-trend"
 
 
 def parse_rate(params, key, default):
@@ -838,6 +869,9 @@ def build_dashboard_payload(code, name, reports, index):
 class StockBoardHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
+        if is_multi_stock_trend_path(parsed.path):
+            self.handle_multi_stock_trend(parsed.query)
+            return
         if parsed.path == "/api/balance-sheet":
             self.handle_balance_sheet(parsed.query)
             return
@@ -868,6 +902,16 @@ class StockBoardHandler(SimpleHTTPRequestHandler):
             reports = fetch_balance_sheet(code)
             payload = build_dashboard_payload(code, name, reports, index)
             self.write_json(payload)
+        except Exception as exc:
+            self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)
+
+    def handle_multi_stock_trend(self, query):
+        params = parse_qs(query)
+        codes = params.get("codes", ["002594,600519,300750"])[0]
+        period = params.get("period", ["1y"])[0]
+        try:
+            payload = fetch_multi_stock_trend(codes, period)
+            self.write_json(payload, status=200 if payload["series"] else 502)
         except Exception as exc:
             self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)
 

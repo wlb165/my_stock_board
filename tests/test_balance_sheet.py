@@ -59,6 +59,34 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             "period_high": 110.0, "period_low": 90.0, "point_count": 3,
         })
 
+    def test_multi_stock_trend_keeps_successful_series_when_one_fetch_fails(self):
+        original_fetch = app.fetch_front_adjusted_daily_closes
+        try:
+            def fake_fetch(code, start_date, end_date):
+                if code == "600519":
+                    raise RuntimeError("source unavailable")
+                return [
+                    {"date": "2026-01-02", "close": 100.0},
+                    {"date": "2026-01-09", "close": 110.0},
+                ]
+
+            app.fetch_front_adjusted_daily_closes = fake_fetch
+            payload = app.fetch_multi_stock_trend(
+                "002594,600519,300750", "1y", today=date(2026, 7, 11)
+            )
+        finally:
+            app.fetch_front_adjusted_daily_closes = original_fetch
+
+        self.assertEqual(payload["period"], "1y")
+        self.assertEqual(payload["mode_default"], "percent")
+        self.assertEqual([series["code"] for series in payload["series"]], ["002594", "300750"])
+        self.assertEqual(payload["errors"], [{"code": "600519", "message": "source unavailable"}])
+
+    def test_multi_stock_trend_route_matches_only_exact_path(self):
+        self.assertTrue(app.is_multi_stock_trend_path("/api/multi-stock-trend"))
+        self.assertFalse(app.is_multi_stock_trend_path("/api/multi-stock-trend/"))
+        self.assertFalse(app.is_multi_stock_trend_path("/api/valuation"))
+
     def test_valuation_route_is_wired(self):
         self.assertTrue(is_valuation_path("/api/valuation"))
         self.assertFalse(is_valuation_path("/api/revenue-price"))
