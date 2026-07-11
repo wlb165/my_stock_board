@@ -1,5 +1,5 @@
 import sys
-from datetime import date
+from datetime import date, timedelta
 import types
 import unittest
 import app
@@ -135,6 +135,21 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         self.assertEqual(payload["series"][0]["code"], "002594")
         self.assertEqual(payload["series"][0]["points"][-1]["change_pct"], 10.0)
         self.assertEqual(payload["errors"], [])
+
+    def test_multi_stock_trend_uses_dense_comparison_sampling(self):
+        original_fetch = app.fetch_resilient_daily_closes
+        prices = [
+            {"date": (date(2026, 1, 1) + timedelta(days=index)).isoformat(), "close": 100.0 + index}
+            for index in range(10)
+        ]
+        try:
+            app.fetch_resilient_daily_closes = lambda code, start_date, end_date: prices
+            payload = app.fetch_multi_stock_trend("002594", "1y", today=date(2026, 7, 11))
+        finally:
+            app.fetch_resilient_daily_closes = original_fetch
+
+        self.assertEqual(len(payload["series"][0]["points"]), 10)
+        self.assertEqual(payload["series"][0]["summary"]["point_count"], 10)
 
     def test_multi_stock_trend_route_matches_only_exact_path(self):
         self.assertTrue(app.is_multi_stock_trend_path("/api/multi-stock-trend"))
@@ -648,6 +663,19 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             {"date": "2024-01-10", "price": 14.0},
             {"date": "2024-01-19", "price": 15.0},
         ])
+
+    def test_comparison_price_sampling_keeps_daily_density_with_cap(self):
+        prices = [
+            {"date": (date(2026, 1, 1) + timedelta(days=index)).isoformat(), "close": 100.0 + index}
+            for index in range(240)
+        ]
+
+        sampled = app.sample_comparison_prices(prices, max_points=180)
+
+        self.assertEqual(len(sampled), 180)
+        self.assertEqual(sampled[0], {"date": "2026-01-01", "price": 100.0})
+        self.assertEqual(sampled[-1], {"date": "2026-08-28", "price": 339.0})
+        self.assertGreater(len(sampled), len(sample_weekly_prices(prices)))
 
     def test_front_adjusted_daily_closes_uses_only_eastmoney_qfq_source(self):
         import app

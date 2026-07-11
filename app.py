@@ -233,6 +233,27 @@ def sample_weekly_prices(prices):
     return list(weekly.values())
 
 
+def sample_comparison_prices(prices, max_points=180):
+    daily = []
+    for item in sorted(prices, key=lambda row: row["date"]):
+        close = parse_number(item.get("close"))
+        if not close:
+            continue
+        daily.append({"date": item["date"], "price": round(close, 2)})
+
+    if len(daily) <= max_points:
+        return daily
+    if max_points <= 1:
+        return daily[-1:]
+
+    last_index = len(daily) - 1
+    indexes = sorted({
+        round(index * last_index / (max_points - 1))
+        for index in range(max_points)
+    })
+    return [daily[index] for index in indexes]
+
+
 MAX_COMPARISON_STOCKS = 6
 COMPARISON_PERIOD_DAYS = {"6m": 181, "1y": 365, "3y": 365 * 3, "5y": 365 * 5}
 
@@ -336,8 +357,8 @@ def fetch_multi_stock_trend(codes_raw, period, today=None):
     for code in codes:
         try:
             prices = fetch_resilient_daily_closes(code, start_date, end_date)
-            weekly_prices = sample_weekly_prices(filter_prices_from(prices, start_date))
-            series.append(build_comparison_series(code, stock_name_for_code(code), weekly_prices))
+            comparison_prices = sample_comparison_prices(filter_prices_from(prices, start_date))
+            series.append(build_comparison_series(code, stock_name_for_code(code), comparison_prices))
         except Exception as exc:
             errors.append({"code": code, "message": str(exc) or exc.__class__.__name__})
 
