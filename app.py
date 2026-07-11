@@ -304,7 +304,7 @@ def fetch_multi_stock_trend(codes_raw, period, today=None):
 
     for code in codes:
         try:
-            prices = fetch_front_adjusted_daily_closes(code, start_date, end_date)
+            prices = fetch_resilient_daily_closes(code, start_date, end_date)
             weekly_prices = sample_weekly_prices(filter_prices_from(prices, start_date))
             series.append(build_comparison_series(code, code, weekly_prices))
         except Exception as exc:

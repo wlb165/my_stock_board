@@ -60,7 +60,7 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         })
 
     def test_multi_stock_trend_keeps_successful_series_when_one_fetch_fails(self):
-        original_fetch = app.fetch_front_adjusted_daily_closes
+        original_fetch = app.fetch_resilient_daily_closes
         try:
             def fake_fetch(code, start_date, end_date):
                 if code == "600519":
@@ -70,17 +70,45 @@ class BalanceSheetDashboardTest(unittest.TestCase):
                     {"date": "2026-01-09", "close": 110.0},
                 ]
 
-            app.fetch_front_adjusted_daily_closes = fake_fetch
+            app.fetch_resilient_daily_closes = fake_fetch
             payload = app.fetch_multi_stock_trend(
                 "002594,600519,300750", "1y", today=date(2026, 7, 11)
             )
         finally:
-            app.fetch_front_adjusted_daily_closes = original_fetch
+            app.fetch_resilient_daily_closes = original_fetch
 
         self.assertEqual(payload["period"], "1y")
         self.assertEqual(payload["mode_default"], "percent")
         self.assertEqual([series["code"] for series in payload["series"]], ["002594", "300750"])
         self.assertEqual(payload["errors"], [{"code": "600519", "message": "source unavailable"}])
+
+    def test_multi_stock_trend_uses_resilient_price_fallbacks(self):
+        original_eastmoney = app.fetch_front_adjusted_daily_closes
+        original_resilient = app.fetch_resilient_daily_closes
+        calls = []
+        try:
+            def fail_eastmoney(code, start_date, end_date):
+                calls.append("eastmoney")
+                raise RuntimeError("eastmoney unavailable")
+
+            def fake_resilient(code, start_date, end_date):
+                calls.append("resilient")
+                return [
+                    {"date": "2026-01-02", "close": 100.0},
+                    {"date": "2026-01-09", "close": 110.0},
+                ]
+
+            app.fetch_front_adjusted_daily_closes = fail_eastmoney
+            app.fetch_resilient_daily_closes = fake_resilient
+            payload = app.fetch_multi_stock_trend("002594", "1y", today=date(2026, 7, 11))
+        finally:
+            app.fetch_front_adjusted_daily_closes = original_eastmoney
+            app.fetch_resilient_daily_closes = original_resilient
+
+        self.assertEqual(calls, ["resilient"])
+        self.assertEqual(payload["series"][0]["code"], "002594")
+        self.assertEqual(payload["series"][0]["points"][-1]["change_pct"], 10.0)
+        self.assertEqual(payload["errors"], [])
 
     def test_multi_stock_trend_route_matches_only_exact_path(self):
         self.assertTrue(app.is_multi_stock_trend_path("/api/multi-stock-trend"))
