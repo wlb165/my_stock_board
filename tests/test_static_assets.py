@@ -165,6 +165,14 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertIn("drawMultiTrendChart", script)
         self.assertIn("/api/multi-stock-trend", script)
 
+    def test_workbench_layout_keeps_chart_inside_workspace(self):
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn("width: min(1360px, calc(100% - 32px));", styles)
+        self.assertIn("grid-template-columns: 220px minmax(0, 1fr);", styles)
+        self.assertIn("overflow: hidden;", styles)
+        self.assertNotIn("min-width: 980px;", styles)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,7 +25,7 @@ body {
 }
 
 .shell {
-  width: min(1200px, calc(100% - 32px));
+  width: min(1360px, calc(100% - 32px));
   margin: 28px auto;
   background: #fff;
   border: 1px solid #ddd;
@@ -44,7 +44,7 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   border-top: 1px solid var(--line);
 }
 
@@ -140,7 +140,8 @@ h1 {
 
 .board {
   position: relative;
-  padding: 32px 36px 28px;
+  padding: 32px 28px 28px;
+  overflow: hidden;
 }
 
 .period-actions {
@@ -237,9 +238,9 @@ h1 {
   position: relative;
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(42px, 1fr);
+  grid-auto-columns: minmax(34px, 1fr);
   align-items: end;
-  gap: 18px;
+  gap: 14px;
   padding-top: 8px;
   border-bottom: 2px solid #c6c6c6;
   background: repeating-linear-gradient(
@@ -686,9 +687,5 @@ h1 {
   .chart-wrap {
     grid-template-columns: 44px 1fr;
     overflow-x: auto;
-  }
-
-  .bars {
-    min-width: 980px;
   }
 }
