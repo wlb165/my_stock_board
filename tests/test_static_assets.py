@@ -146,7 +146,10 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertIn('data-workbench-panel="multi-trend"', html)
         for element_id in (
             "multi-stock-form",
+            "multi-stock-query",
             "multi-stock-codes",
+            "stock-pool-list",
+            "stock-search-results",
             "multi-period",
             "multi-mode",
             "multi-trend-svg",
@@ -163,6 +166,9 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertIn("loadMultiTrendDashboard", script)
         self.assertIn("renderMultiTrend", script)
         self.assertIn("drawMultiTrendChart", script)
+        self.assertIn("addStockToPool", script)
+        self.assertIn("renderStockPool", script)
+        self.assertIn("/api/stock-search", script)
         self.assertIn("/api/multi-stock-trend", script)
 
     def test_workbench_layout_keeps_chart_inside_workspace(self):

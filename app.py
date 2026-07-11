@@ -17,6 +17,18 @@ SINA_FINANCE_URL = "https://quotes.sina.cn/cn/api/openapi.php/CompanyFinanceServ
 EASTMONEY_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 BAIDU_KLINE_URL = "https://finance.pae.baidu.com/selfselect/getstockquotation"
 
+STOCK_DIRECTORY = [
+    {"code": "002594", "name": "比亚迪"},
+    {"code": "600519", "name": "贵州茅台"},
+    {"code": "300750", "name": "宁德时代"},
+    {"code": "000333", "name": "美的集团"},
+    {"code": "601318", "name": "中国平安"},
+    {"code": "000858", "name": "五粮液"},
+    {"code": "600000", "name": "浦发银行"},
+    {"code": "002245", "name": "蔚蓝锂芯"},
+]
+STOCK_NAMES_BY_CODE = {item["code"]: item["name"] for item in STOCK_DIRECTORY}
+
 ASSET_GROUPS = [
     ("现金", ["货币资金"]),
     ("应收款", ["应收账款", "应收票据", "应收款项融资"]),
@@ -243,6 +255,25 @@ def parse_stock_codes(raw_codes, limit=MAX_COMPARISON_STOCKS):
     return codes, errors
 
 
+def stock_name_for_code(code):
+    return STOCK_NAMES_BY_CODE.get(code, code)
+
+
+def search_stock_directory(query, limit=8):
+    keyword = (query or "").strip()
+    if not keyword:
+        return []
+    if re.fullmatch(r"\d{6}", keyword):
+        return [{"code": keyword, "name": stock_name_for_code(keyword)}]
+    keyword_lower = keyword.lower()
+    matches = [
+        item
+        for item in STOCK_DIRECTORY
+        if keyword_lower in item["code"].lower() or keyword_lower in item["name"].lower()
+    ]
+    return matches[:limit]
+
+
 def normalize_comparison_period(period):
     return period if period in COMPARISON_PERIOD_DAYS else "1y"
 
@@ -306,7 +337,7 @@ def fetch_multi_stock_trend(codes_raw, period, today=None):
         try:
             prices = fetch_resilient_daily_closes(code, start_date, end_date)
             weekly_prices = sample_weekly_prices(filter_prices_from(prices, start_date))
-            series.append(build_comparison_series(code, code, weekly_prices))
+            series.append(build_comparison_series(code, stock_name_for_code(code), weekly_prices))
         except Exception as exc:
             errors.append({"code": code, "message": str(exc) or exc.__class__.__name__})
 
@@ -348,6 +379,10 @@ def is_valuation_path(path):
 
 def is_multi_stock_trend_path(path):
     return path == "/api/multi-stock-trend"
+
+
+def is_stock_search_path(path):
+    return path == "/api/stock-search"
 
 
 def parse_rate(params, key, default):
@@ -869,6 +904,9 @@ def build_dashboard_payload(code, name, reports, index):
 class StockBoardHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
+        if is_stock_search_path(parsed.path):
+            self.handle_stock_search(parsed.query)
+            return
         if is_multi_stock_trend_path(parsed.path):
             self.handle_multi_stock_trend(parsed.query)
             return
@@ -914,6 +952,11 @@ class StockBoardHandler(SimpleHTTPRequestHandler):
             self.write_json(payload, status=200 if payload["series"] else 502)
         except Exception as exc:
             self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)
+
+    def handle_stock_search(self, query):
+        params = parse_qs(query, keep_blank_values=True)
+        keyword = params.get("q", [""])[0]
+        self.write_json({"query": keyword, "results": search_stock_directory(keyword)})
 
     def handle_revenue_price(self, query):
         params = parse_qs(query)

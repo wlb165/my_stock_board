@@ -27,7 +27,10 @@ const valuationForm = document.querySelector("#valuation-form");
 const valuationSvg = document.querySelector("#valuation-svg");
 const multiTrendPanel = document.querySelector("#multi-trend-panel");
 const multiStockForm = document.querySelector("#multi-stock-form");
+const multiStockQuery = document.querySelector("#multi-stock-query");
 const multiStockCodes = document.querySelector("#multi-stock-codes");
+const stockPoolList = document.querySelector("#stock-pool-list");
+const stockSearchResults = document.querySelector("#stock-search-results");
 const multiPeriod = document.querySelector("#multi-period");
 const multiMode = document.querySelector("#multi-mode");
 const multiTrendSvg = document.querySelector("#multi-trend-svg");
@@ -35,6 +38,11 @@ const multiLegend = document.querySelector("#multi-legend");
 const multiSummary = document.querySelector("#multi-summary");
 const multiErrors = document.querySelector("#multi-errors");
 let multiTrendPayload = null;
+let multiStockPool = [
+  { code: "002594", name: "比亚迪" },
+  { code: "600519", name: "贵州茅台" },
+  { code: "300750", name: "宁德时代" },
+];
 
 function yi(value) {
   return `${Number(value || 0).toLocaleString("zh-CN", {
@@ -230,14 +238,125 @@ function showMultiTrendPlaceholder() {
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function stockDisplayName(stock) {
+  const name = stock.name && stock.name !== stock.code ? `${stock.name} · ${stock.code}` : stock.code;
+  return name;
+}
+
+function stockFromPoolOrSeries(item) {
+  return multiStockPool.find((stock) => stock.code === item.code) || item;
+}
+
+function syncMultiStockCodes() {
+  multiStockCodes.value = multiStockPool.map((stock) => stock.code).join(",");
+}
+
+function renderStockPool() {
+  syncMultiStockCodes();
+  stockPoolList.innerHTML = multiStockPool.map((stock) => (
+    `<span class="stock-pool-chip">
+      ${escapeHtml(stockDisplayName(stock))}
+      <button type="button" data-remove-stock="${escapeHtml(stock.code)}" aria-label="移除 ${escapeHtml(stockDisplayName(stock))}">×</button>
+    </span>`
+  )).join("");
+  stockPoolList.querySelectorAll("[data-remove-stock]").forEach((button) => {
+    button.addEventListener("click", () => {
+      multiStockPool = multiStockPool.filter((stock) => stock.code !== button.dataset.removeStock);
+      renderStockPool();
+      if (state.view === "multi-trend") {
+        loadMultiTrendDashboard();
+      }
+    });
+  });
+}
+
+function showStockSearchResults(results) {
+  if (!results.length) {
+    stockSearchResults.hidden = false;
+    stockSearchResults.innerHTML = "<span>未找到股票，请输入 6 位代码</span>";
+    return;
+  }
+  stockSearchResults.hidden = false;
+  stockSearchResults.innerHTML = results.map((stock) => (
+    `<button type="button" data-add-code="${escapeHtml(stock.code)}" data-add-name="${escapeHtml(stock.name)}">
+      ${escapeHtml(stockDisplayName(stock))}
+    </button>`
+  )).join("");
+  stockSearchResults.querySelectorAll("[data-add-code]").forEach((button) => {
+    button.addEventListener("click", () => {
+      addStockToPool({ code: button.dataset.addCode, name: button.dataset.addName });
+    });
+  });
+}
+
+function addStockToPool(stock) {
+  if (!stock.code) return;
+  if (multiStockPool.some((item) => item.code === stock.code)) {
+    stockSearchResults.hidden = false;
+    stockSearchResults.innerHTML = `<span>${escapeHtml(stockDisplayName(stock))} 已在股票池中</span>`;
+    return;
+  }
+  if (multiStockPool.length >= 6) {
+    stockSearchResults.hidden = false;
+    stockSearchResults.innerHTML = "<span>最多对比 6 只股票</span>";
+    return;
+  }
+  multiStockPool = [...multiStockPool, stock];
+  multiStockQuery.value = "";
+  stockSearchResults.hidden = true;
+  renderStockPool();
+  if (state.view === "multi-trend") {
+    loadMultiTrendDashboard();
+  }
+}
+
+async function searchStocksForPool() {
+  const query = multiStockQuery.value.trim();
+  if (!query) return;
+  const params = new URLSearchParams({ q: query });
+  const response = await fetchWithTimeout(`/api/stock-search?${params.toString()}`, 10000);
+  const payload = await readJsonResponse(response);
+  const results = payload.results || [];
+  if (results.length === 1) {
+    addStockToPool(results[0]);
+    return;
+  }
+  showStockSearchResults(results);
+}
+
 async function loadMultiTrendDashboard() {
   if (window.location.protocol === "file:") {
     showError("请打开 http://127.0.0.1:8765，不要直接打开 static/index.html 文件");
     return;
   }
 
+  if (!multiStockPool.length) {
+    syncMultiStockCodes();
+    loading.hidden = true;
+    error.hidden = true;
+    multiSummary.innerHTML = "";
+    multiErrors.hidden = true;
+    multiLegend.innerHTML = "";
+    multiTrendSvg.innerHTML = "";
+    stockSearchResults.hidden = false;
+    stockSearchResults.innerHTML = "<span>先搜索股票并加入股票池</span>";
+    workbenchPanels.forEach((item) => {
+      item.hidden = item.dataset.workbenchPanel !== "multi-trend";
+    });
+    return;
+  }
+
   setLoading(true);
   try {
+    syncMultiStockCodes();
     const params = new URLSearchParams({
       codes: multiStockCodes.value.trim(),
       period: multiPeriod.value,
@@ -272,9 +391,10 @@ function renderMultiTrend(payload) {
 
   multiSummary.innerHTML = series.map((item) => {
     const summary = item.summary || {};
+    const stock = stockFromPoolOrSeries(item);
     return [
       "<div>",
-      `<span>${item.name || item.code}</span>`,
+      `<span>${escapeHtml(stockDisplayName(stock))}</span>`,
       `<strong>${mode === "price" ? yuan(summary.latest_price) : `${summary.period_change_pct ?? "--"}%`}</strong>`,
       `<span>${summary.point_count || 0} 个采样点</span>`,
       "</div>",
@@ -283,12 +403,13 @@ function renderMultiTrend(payload) {
 
   multiErrors.hidden = !errors.length;
   multiErrors.innerHTML = errors.map((item) => {
-    const code = item.code ? `${item.code}: ` : "";
-    return `<p>${code}${item.message}</p>`;
+    const stock = stockFromPoolOrSeries(item);
+    const label = item.code ? `${stockDisplayName(stock)}: ` : "";
+    return `<p>${escapeHtml(label)}${escapeHtml(item.message)}</p>`;
   }).join("");
 
   multiLegend.innerHTML = series.map((item, index) => (
-    `<span><i style="background:${multiColors[index % multiColors.length]}"></i>${item.name || item.code}</span>`
+    `<span><i style="background:${multiColors[index % multiColors.length]}"></i>${escapeHtml(stockDisplayName(stockFromPoolOrSeries(item)))}</span>`
   )).join("");
 
   drawMultiTrendChart(series, mode);
@@ -708,7 +829,16 @@ valuationForm.addEventListener("submit", (event) => {
 
 multiStockForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  loadMultiTrendDashboard();
+  searchStocksForPool().catch((err) => {
+    stockSearchResults.hidden = false;
+    stockSearchResults.innerHTML = `<span>${escapeHtml(err.message || "搜索失败")}</span>`;
+  });
+});
+
+multiPeriod.addEventListener("change", () => {
+  if (state.view === "multi-trend") {
+    loadMultiTrendDashboard();
+  }
 });
 
 multiMode.addEventListener("change", () => {
@@ -738,4 +868,5 @@ workbenchButtons.forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.workbenchView));
 });
 
+renderStockPool();
 loadActiveDashboard();

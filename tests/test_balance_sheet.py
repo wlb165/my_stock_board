@@ -59,6 +59,32 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             "period_high": 110.0, "period_low": 90.0, "point_count": 3,
         })
 
+    def test_stock_search_matches_code_and_name(self):
+        self.assertEqual(
+            app.search_stock_directory("比亚迪"),
+            [{"code": "002594", "name": "比亚迪"}],
+        )
+        self.assertEqual(
+            app.search_stock_directory("600519"),
+            [{"code": "600519", "name": "贵州茅台"}],
+        )
+
+    def test_multi_stock_trend_uses_directory_names(self):
+        original_fetch = app.fetch_resilient_daily_closes
+        try:
+            app.fetch_resilient_daily_closes = lambda code, start, end: [
+                {"date": "2026-01-02", "close": 100.0},
+                {"date": "2026-01-09", "close": 110.0},
+            ]
+            payload = app.fetch_multi_stock_trend("002594,600519", "1y", today=date(2026, 7, 11))
+        finally:
+            app.fetch_resilient_daily_closes = original_fetch
+
+        self.assertEqual(
+            [(series["code"], series["name"]) for series in payload["series"]],
+            [("002594", "比亚迪"), ("600519", "贵州茅台")],
+        )
+
     def test_multi_stock_trend_keeps_successful_series_when_one_fetch_fails(self):
         original_fetch = app.fetch_resilient_daily_closes
         try:
