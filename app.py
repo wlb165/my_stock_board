@@ -1,4 +1,5 @@
 from bisect import bisect_right
+from calendar import monthrange
 from datetime import date, datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -246,14 +247,19 @@ def normalize_comparison_period(period):
     return period if period in COMPARISON_PERIOD_DAYS else "1y"
 
 
+def calendar_months_before(current, months):
+    target_month = current.month - months
+    target_year = current.year + (target_month - 1) // 12
+    target_month = (target_month - 1) % 12 + 1
+    target_day = min(current.day, monthrange(target_year, target_month)[1])
+    return date(target_year, target_month, target_day)
+
+
 def period_start_date(period, today=None):
     current = today or date.today()
     period = normalize_comparison_period(period)
-    if period == "6m":
-        return (current - timedelta(days=181)).isoformat()
-    if period in ("1y", "3y", "5y"):
-        return current.replace(year=current.year - int(period[0])).isoformat()
-    return (current - timedelta(days=COMPARISON_PERIOD_DAYS[period])).isoformat()
+    months = {"6m": 6, "1y": 12, "3y": 36, "5y": 60}[period]
+    return calendar_months_before(current, months).isoformat()
 
 
 def filter_prices_from(prices, start_date):

@@ -40,6 +40,12 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         self.assertEqual(app.period_start_date("3y", today), "2023-07-11")
         self.assertEqual(app.period_start_date("5y", today), "2021-07-11")
 
+    def test_period_helpers_use_month_end_for_invalid_leap_day_targets(self):
+        today = date(2024, 2, 29)
+        self.assertEqual(app.period_start_date("1y", today), "2023-02-28")
+        self.assertEqual(app.period_start_date("3y", today), "2021-02-28")
+        self.assertEqual(app.period_start_date("5y", today), "2019-02-28")
+
     def test_build_comparison_series_computes_change_and_summary(self):
         series = app.build_comparison_series("002594", "BYD", [
             {"date": "2026-01-02", "price": 100.0},
