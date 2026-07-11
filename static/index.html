@@ -166,10 +166,39 @@
         </section>
 
             <section id="multi-trend-panel" class="multi-trend-panel" data-workbench-panel="multi-trend" hidden>
-              <div class="placeholder-panel">
-                <h2>多股趋势对比</h2>
-                <p>多股股价与营收对比图表将在后续任务中接入。</p>
+              <form id="multi-stock-form" class="multi-stock-form">
+                <label>股票代码
+                  <input id="multi-stock-codes" value="002594, 600519, 300750" aria-label="多股股票代码" />
+                </label>
+                <label>周期
+                  <select id="multi-period" aria-label="对比周期">
+                    <option value="6m">6个月</option>
+                    <option value="1y" selected>1年</option>
+                    <option value="3y">3年</option>
+                    <option value="5y">5年</option>
+                  </select>
+                </label>
+                <label>模式
+                  <select id="multi-mode" aria-label="对比模式">
+                    <option value="percent" selected>涨跌幅</option>
+                    <option value="price">绝对价格</option>
+                  </select>
+                </label>
+                <button type="submit">生成对比</button>
+              </form>
+
+              <div class="chart-title">
+                <h2>多股走势对比</h2>
+                <p>按周采样前复权收盘价，默认展示区间涨跌幅</p>
               </div>
+
+              <div id="multi-summary" class="summary-grid multi-summary"></div>
+              <div id="multi-errors" class="multi-errors" hidden></div>
+
+              <div class="multi-trend-chart-wrap">
+                <svg id="multi-trend-svg" role="img" aria-label="多股走势对比图"></svg>
+              </div>
+              <div id="multi-legend" class="legend multi-legend"></div>
             </section>
           </section>
         </section>

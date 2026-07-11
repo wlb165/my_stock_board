@@ -138,6 +138,33 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertIn(".app-shell", styles)
         self.assertIn(".sidebar", styles)
 
+    def test_multi_stock_comparison_view_is_wired(self):
+        html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="multi-trend-panel"', html)
+        self.assertIn('data-workbench-panel="multi-trend"', html)
+        for element_id in (
+            "multi-stock-form",
+            "multi-stock-codes",
+            "multi-period",
+            "multi-mode",
+            "multi-trend-svg",
+            "multi-legend",
+            "multi-summary",
+            "multi-errors",
+        ):
+            self.assertIn(f'id="{element_id}"', html)
+        self.assertIn('value="002594, 600519, 300750"', html)
+        for option_value in ("6m", "1y", "3y", "5y"):
+            self.assertIn(f'value="{option_value}"', html)
+        self.assertIn('value="percent"', html)
+        self.assertIn('value="price"', html)
+        self.assertIn("loadMultiTrendDashboard", script)
+        self.assertIn("renderMultiTrend", script)
+        self.assertIn("drawMultiTrendChart", script)
+        self.assertIn("/api/multi-stock-trend", script)
+
 
 if __name__ == "__main__":
     unittest.main()

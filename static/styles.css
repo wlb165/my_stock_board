@@ -521,6 +521,100 @@ h1 {
   font-weight: 700;
 }
 
+.multi-stock-form {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.8fr) repeat(2, minmax(120px, 0.7fr)) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 22px;
+}
+
+.multi-stock-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.multi-stock-form input,
+.multi-stock-form select,
+.multi-stock-form button {
+  height: 38px;
+  border: 1px solid #d6d6d6;
+  border-radius: 4px;
+  padding: 0 10px;
+  font-size: 14px;
+}
+
+.multi-stock-form button {
+  cursor: pointer;
+  color: #fff;
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.multi-summary {
+  max-width: none;
+}
+
+.multi-errors {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid #f5c2c7;
+  border-radius: 6px;
+  color: #9f1239;
+  background: #fff5f5;
+  font-size: 14px;
+}
+
+.multi-errors p {
+  margin: 4px 0;
+}
+
+.multi-trend-chart-wrap {
+  width: 100%;
+  min-height: 520px;
+  overflow-x: auto;
+  border: 1px solid #eef1f4;
+  border-radius: 6px;
+  background: #fff;
+}
+
+#multi-trend-svg {
+  display: block;
+  width: 100%;
+  min-width: 1120px;
+  height: 520px;
+}
+
+.multi-trend-line {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.multi-trend-marker {
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.multi-zero-line {
+  stroke: #cbd5e1;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 5;
+}
+
+.multi-trend-tick {
+  fill: #667085;
+}
+
+.multi-axis-title {
+  fill: #475467;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .placeholder-panel {
   min-height: 320px;
   display: grid;
@@ -583,6 +677,10 @@ h1 {
 
   .valuation-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .multi-stock-form {
+    grid-template-columns: 1fr;
   }
 
   .chart-wrap {
