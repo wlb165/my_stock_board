@@ -19,7 +19,8 @@ const periodActions = document.querySelector("#period-actions");
 const currentButton = document.querySelector("#current-period");
 const prevButton = document.querySelector("#prev-period");
 const nextButton = document.querySelector("#next-period");
-const tabButtons = document.querySelectorAll(".tab[data-view]");
+const workbenchButtons = document.querySelectorAll("[data-workbench-view]");
+const workbenchPanels = document.querySelectorAll("[data-workbench-panel]");
 const trendSvg = document.querySelector("#trend-svg");
 const valuationPanel = document.querySelector("#valuation-panel");
 const valuationForm = document.querySelector("#valuation-form");
@@ -50,17 +51,17 @@ function syncStockInputs() {
 
 function setLoading(isLoading) {
   loading.hidden = !isLoading;
-  panel.hidden = true;
-  trendPanel.hidden = true;
-  valuationPanel.hidden = true;
+  workbenchPanels.forEach((item) => {
+    item.hidden = true;
+  });
   error.hidden = true;
 }
 
 function showError(message) {
   loading.hidden = true;
-  panel.hidden = true;
-  trendPanel.hidden = true;
-  valuationPanel.hidden = true;
+  workbenchPanels.forEach((item) => {
+    item.hidden = true;
+  });
   error.hidden = false;
   error.textContent = `读取失败：${message}`;
 }
@@ -206,9 +207,17 @@ function showValuationDashboard() {
   valuationSvg.innerHTML = "";
   loading.hidden = true;
   error.hidden = true;
-  panel.hidden = true;
-  trendPanel.hidden = true;
-  valuationPanel.hidden = false;
+  workbenchPanels.forEach((item) => {
+    item.hidden = item.dataset.workbenchPanel !== "valuation";
+  });
+}
+
+function showMultiTrendPlaceholder() {
+  loading.hidden = true;
+  error.hidden = true;
+  workbenchPanels.forEach((item) => {
+    item.hidden = item.dataset.workbenchPanel !== "multi-trend";
+  });
 }
 
 function axisMax(values) {
@@ -503,6 +512,10 @@ async function loadValuationDashboard() {
 
 function loadActiveDashboard() {
   periodActions.hidden = state.view !== "balance";
+  if (state.view === "multi-trend") {
+    showMultiTrendPlaceholder();
+    return;
+  }
   if (state.view === "valuation") {
     showValuationDashboard();
     return;
@@ -519,8 +532,8 @@ function loadActiveDashboard() {
 function setView(view) {
   if (view === "basic") return;
   state.view = view;
-  tabButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.view === view);
+  workbenchButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.workbenchView === view);
   });
   loadActiveDashboard();
 }
@@ -554,8 +567,8 @@ nextButton.addEventListener("click", () => {
   loadBalanceDashboard();
 });
 
-tabButtons.forEach((button) => {
-  button.addEventListener("click", () => setView(button.dataset.view));
+workbenchButtons.forEach((button) => {
+  button.addEventListener("click", () => setView(button.dataset.workbenchView));
 });
 
 loadActiveDashboard();

@@ -125,6 +125,19 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertIn('valuationForm.addEventListener("submit"', script)
         self.assertIn("loadValuationDashboard();", script)
 
+    def test_workbench_sidebar_layout_hooks_are_wired(self):
+        html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('class="sidebar"', html)
+        for view in ("balance", "trend", "valuation", "multi-trend"):
+            self.assertIn(f'data-workbench-view="{view}"', html)
+        self.assertIn('data-workbench-panel="multi-trend"', html)
+        self.assertIn("const workbenchButtons", script)
+        self.assertIn(".app-shell", styles)
+        self.assertIn(".sidebar", styles)
+
 
 if __name__ == "__main__":
     unittest.main()
