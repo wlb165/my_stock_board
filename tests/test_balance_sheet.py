@@ -87,6 +87,31 @@ class BalanceSheetDashboardTest(unittest.TestCase):
         self.assertFalse(app.is_multi_stock_trend_path("/api/multi-stock-trend/"))
         self.assertFalse(app.is_multi_stock_trend_path("/api/valuation"))
 
+    def test_multi_stock_trend_handler_preserves_explicit_blank_codes(self):
+        calls = []
+        responses = []
+        original_fetch = app.fetch_multi_stock_trend
+        handler = object.__new__(app.StockBoardHandler)
+        try:
+            def fake_fetch(codes, period):
+                calls.append((codes, period))
+                return {
+                    "period": period,
+                    "mode_default": "percent",
+                    "series": [],
+                    "errors": [{"code": "", "message": "No stock codes"}],
+                }
+
+            app.fetch_multi_stock_trend = fake_fetch
+            handler.write_json = lambda payload, status=200: responses.append((payload, status))
+            handler.handle_multi_stock_trend("codes=")
+            handler.handle_multi_stock_trend("")
+        finally:
+            app.fetch_multi_stock_trend = original_fetch
+
+        self.assertEqual(calls, [("", "1y"), ("002594,600519,300750", "1y")])
+        self.assertEqual([status for _, status in responses], [502, 502])
+
     def test_valuation_route_is_wired(self):
         self.assertTrue(is_valuation_path("/api/valuation"))
         self.assertFalse(is_valuation_path("/api/revenue-price"))

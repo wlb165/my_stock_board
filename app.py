@@ -906,7 +906,7 @@ class StockBoardHandler(SimpleHTTPRequestHandler):
             self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)
 
     def handle_multi_stock_trend(self, query):
-        params = parse_qs(query)
+        params = parse_qs(query, keep_blank_values=True)
         codes = params.get("codes", ["002594,600519,300750"])[0]
         period = params.get("period", ["1y"])[0]
         try:
