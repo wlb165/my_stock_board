@@ -19,11 +19,44 @@ const periodActions = document.querySelector("#period-actions");
 const currentButton = document.querySelector("#current-period");
 const prevButton = document.querySelector("#prev-period");
 const nextButton = document.querySelector("#next-period");
-const tabButtons = document.querySelectorAll(".tab[data-view]");
+const workbenchButtons = document.querySelectorAll("[data-workbench-view]");
+const workbenchPanels = document.querySelectorAll("[data-workbench-panel]");
 const trendSvg = document.querySelector("#trend-svg");
 const valuationPanel = document.querySelector("#valuation-panel");
 const valuationForm = document.querySelector("#valuation-form");
 const valuationSvg = document.querySelector("#valuation-svg");
+const multiTrendPanel = document.querySelector("#multi-trend-panel");
+const multiStockForm = document.querySelector("#multi-stock-form");
+const multiStockQuery = document.querySelector("#multi-stock-query");
+const multiStockCodes = document.querySelector("#multi-stock-codes");
+const stockPoolList = document.querySelector("#stock-pool-list");
+const stockSearchResults = document.querySelector("#stock-search-results");
+const multiPeriod = document.querySelector("#multi-period");
+const multiMode = document.querySelector("#multi-mode");
+const multiGenerateChart = document.querySelector("#multi-generate-chart");
+const multiTrendSvg = document.querySelector("#multi-trend-svg");
+const multiLegend = document.querySelector("#multi-legend");
+const multiSummary = document.querySelector("#multi-summary");
+const multiErrors = document.querySelector("#multi-errors");
+let multiTrendPayload = null;
+let multiStockPool = [
+  { code: "002594", name: "比亚迪" },
+  { code: "600519", name: "贵州茅台" },
+  { code: "300750", name: "宁德时代" },
+];
+const multiStockNamesByCode = {
+  "002594": "比亚迪",
+  "600519": "贵州茅台",
+  "300750": "宁德时代",
+  "000333": "美的集团",
+  "601318": "中国平安",
+  "000858": "五粮液",
+  "600000": "浦发银行",
+  "002245": "蔚蓝锂芯",
+  "601857": "中国石油",
+  "600028": "中国石化",
+  "600938": "中国海油",
+};
 
 function yi(value) {
   return `${Number(value || 0).toLocaleString("zh-CN", {
@@ -50,17 +83,17 @@ function syncStockInputs() {
 
 function setLoading(isLoading) {
   loading.hidden = !isLoading;
-  panel.hidden = true;
-  trendPanel.hidden = true;
-  valuationPanel.hidden = true;
+  workbenchPanels.forEach((item) => {
+    item.hidden = true;
+  });
   error.hidden = true;
 }
 
 function showError(message) {
   loading.hidden = true;
-  panel.hidden = true;
-  trendPanel.hidden = true;
-  valuationPanel.hidden = true;
+  workbenchPanels.forEach((item) => {
+    item.hidden = true;
+  });
   error.hidden = false;
   error.textContent = `读取失败：${message}`;
 }
@@ -206,9 +239,251 @@ function showValuationDashboard() {
   valuationSvg.innerHTML = "";
   loading.hidden = true;
   error.hidden = true;
-  panel.hidden = true;
-  trendPanel.hidden = true;
-  valuationPanel.hidden = false;
+  workbenchPanels.forEach((item) => {
+    item.hidden = item.dataset.workbenchPanel !== "valuation";
+  });
+}
+
+function showMultiTrendPlaceholder() {
+  loading.hidden = true;
+  error.hidden = true;
+  workbenchPanels.forEach((item) => {
+    item.hidden = item.dataset.workbenchPanel !== "multi-trend";
+  });
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function stockDisplayName(stock) {
+  const name = stock.name && stock.name !== stock.code ? `${stock.name} · ${stock.code}` : stock.code;
+  return name;
+}
+
+function stockFromPoolOrSeries(item) {
+  return multiStockPool.find((stock) => stock.code === item.code) || item;
+}
+
+function stockForCode(code) {
+  return { code, name: multiStockNamesByCode[code] || code };
+}
+
+function syncMultiStockCodes() {
+  multiStockCodes.value = multiStockPool.map((stock) => stock.code).join(",");
+}
+
+function renderStockPool() {
+  syncMultiStockCodes();
+  stockPoolList.innerHTML = multiStockPool.map((stock) => (
+    `<span class="stock-pool-chip">
+      ${escapeHtml(stockDisplayName(stock))}
+      <button type="button" data-remove-stock="${escapeHtml(stock.code)}" aria-label="移除 ${escapeHtml(stockDisplayName(stock))}">×</button>
+    </span>`
+  )).join("");
+  stockPoolList.querySelectorAll("[data-remove-stock]").forEach((button) => {
+    button.addEventListener("click", () => {
+      multiStockPool = multiStockPool.filter((stock) => stock.code !== button.dataset.removeStock);
+      renderStockPool();
+    });
+  });
+}
+
+function addStockToPool(stock) {
+  if (!stock.code) return;
+  if (multiStockPool.some((item) => item.code === stock.code)) {
+    stockSearchResults.hidden = false;
+    stockSearchResults.innerHTML = `<span>${escapeHtml(stockDisplayName(stock))} 已在股票池中</span>`;
+    return;
+  }
+  if (multiStockPool.length >= 6) {
+    stockSearchResults.hidden = false;
+    stockSearchResults.innerHTML = "<span>最多对比 6 只股票</span>";
+    return;
+  }
+  multiStockPool = [...multiStockPool, stock];
+  multiStockQuery.value = "";
+  stockSearchResults.hidden = true;
+  renderStockPool();
+}
+
+function addStockCodeToPool() {
+  const code = multiStockQuery.value.trim();
+  if (!code) return;
+  if (!/^\d{6}$/.test(code)) {
+    stockSearchResults.hidden = false;
+    stockSearchResults.innerHTML = "<span>请输入 6 位股票代码</span>";
+    return;
+  }
+  addStockToPool(stockForCode(code));
+}
+
+async function loadMultiTrendDashboard() {
+  if (window.location.protocol === "file:") {
+    showError("请打开 http://127.0.0.1:8765，不要直接打开 static/index.html 文件");
+    return;
+  }
+
+  if (!multiStockPool.length) {
+    syncMultiStockCodes();
+    loading.hidden = true;
+    error.hidden = true;
+    multiSummary.innerHTML = "";
+    multiErrors.hidden = true;
+    multiLegend.innerHTML = "";
+    multiTrendSvg.innerHTML = "";
+    stockSearchResults.hidden = false;
+    stockSearchResults.innerHTML = "<span>先搜索股票并加入股票池</span>";
+    workbenchPanels.forEach((item) => {
+      item.hidden = item.dataset.workbenchPanel !== "multi-trend";
+    });
+    return;
+  }
+
+  setLoading(true);
+  try {
+    syncMultiStockCodes();
+    const params = new URLSearchParams({
+      codes: multiStockCodes.value.trim(),
+      period: multiPeriod.value,
+    });
+    const response = await fetchWithTimeout(`/api/multi-stock-trend?${params.toString()}`, 45000);
+    const payload = await readJsonResponse(response);
+    if (payload.error) {
+      showError(payload.error);
+      return;
+    }
+    if (!response.ok && !(payload.series || []).length) {
+      const firstError = (payload.errors || [])[0];
+      showError(firstError ? firstError.message : "没有可展示的多股走势数据");
+      return;
+    }
+    multiTrendPayload = payload;
+    renderMultiTrend(payload);
+  } catch (err) {
+    const message = err.name === "AbortError" ? "接口超时，请确认本地服务和网络可用" : err.message;
+    showError(message || "接口请求失败");
+  }
+}
+
+function renderMultiTrend(payload) {
+  const series = payload.series || [];
+  const errors = payload.errors || [];
+  const mode = multiMode.value || payload.mode_default || "percent";
+  if (!series.length) {
+    showError("没有可展示的多股走势数据");
+    return;
+  }
+
+  multiSummary.innerHTML = series.map((item) => {
+    const summary = item.summary || {};
+    const stock = stockFromPoolOrSeries(item);
+    return [
+      "<div>",
+      `<span>${escapeHtml(stockDisplayName(stock))}</span>`,
+      `<strong>${mode === "price" ? yuan(summary.latest_price) : `${summary.period_change_pct ?? "--"}%`}</strong>`,
+      `<span>${summary.point_count || 0} 个采样点</span>`,
+      "</div>",
+    ].join("");
+  }).join("");
+
+  multiErrors.hidden = !errors.length;
+  multiErrors.innerHTML = errors.map((item) => {
+    const stock = stockFromPoolOrSeries(item);
+    const label = item.code ? `${stockDisplayName(stock)}: ` : "";
+    return `<p>${escapeHtml(label)}${escapeHtml(item.message)}</p>`;
+  }).join("");
+
+  multiLegend.innerHTML = series.map((item, index) => (
+    `<span><i style="background:${multiColors[index % multiColors.length]}"></i>${escapeHtml(stockDisplayName(stockFromPoolOrSeries(item)))}</span>`
+  )).join("");
+
+  drawMultiTrendChart(series, mode);
+  loading.hidden = true;
+  error.hidden = true;
+  multiTrendPanel.hidden = false;
+}
+
+const multiColors = ["#d92d20", "#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2"];
+
+function drawMultiTrendChart(series, mode) {
+  const field = mode === "price" ? "price" : "change_pct";
+  const allPoints = series.flatMap((item) => item.points || []);
+  if (!allPoints.length) {
+    multiTrendSvg.innerHTML = "";
+    return;
+  }
+
+  const width = 1120;
+  const height = 520;
+  const margin = { top: 44, right: 38, bottom: 64, left: 82 };
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = height - margin.top - margin.bottom;
+  const values = allPoints.map((point) => Number(point[field])).filter(Number.isFinite);
+  const minValue = Math.min(...values, 0);
+  const maxValue = Math.max(...values, 1);
+  const valueRange = Math.max(maxValue - minValue, 1);
+  const times = allPoints.map((point) => new Date(point.date).getTime());
+  const minTime = Math.min(...times);
+  const maxTime = Math.max(...times);
+  const timeRange = Math.max(maxTime - minTime, 1);
+  const xAtDate = (date) => margin.left + ((new Date(date).getTime() - minTime) / timeRange) * chartWidth;
+  const yAtValue = (value) => margin.top + chartHeight - ((value - minValue) / valueRange) * chartHeight;
+  const grid = [];
+  const xLabels = [];
+  const yearGuides = [];
+
+  for (let i = 0; i <= 4; i += 1) {
+    const y = margin.top + (chartHeight / 4) * i;
+    const value = maxValue - (valueRange / 4) * i;
+    const label = mode === "price"
+      ? value.toLocaleString("zh-CN", { maximumFractionDigits: 2 })
+      : `${value.toLocaleString("zh-CN", { maximumFractionDigits: 1 })}%`;
+    grid.push(`<line x1="${margin.left}" y1="${y}" x2="${width - margin.right}" y2="${y}" class="grid-line" />`);
+    grid.push(svgText(20, y + 4, label, "multi-trend-tick"));
+  }
+
+  if (minValue < 0 && maxValue > 0) {
+    const zeroY = yAtValue(0);
+    grid.push(`<line x1="${margin.left}" y1="${zeroY}" x2="${width - margin.right}" y2="${zeroY}" class="multi-zero-line" />`);
+  }
+
+  const startYear = new Date(minTime).getFullYear();
+  const endYear = new Date(maxTime).getFullYear();
+  for (let year = startYear; year <= endYear; year += 1) {
+    const x = xAtDate(`${year}-01-01`);
+    if (x >= margin.left && x <= width - margin.right) {
+      yearGuides.push(`<line x1="${x}" y1="${margin.top}" x2="${x}" y2="${height - margin.bottom}" class="year-guide" />`);
+      xLabels.push(svgText(x - 18, height - 30, String(year), "year-label"));
+    }
+  }
+
+  const lines = series.map((item, index) => {
+    const points = (item.points || []).filter((point) => Number.isFinite(Number(point[field])));
+    const path = points.map((point, pointIndex) => {
+      const command = pointIndex === 0 ? "M" : "L";
+      return `${command} ${xAtDate(point.date)} ${yAtValue(Number(point[field]))}`;
+    }).join(" ");
+    const latest = points[points.length - 1];
+    const marker = latest
+      ? `<circle cx="${xAtDate(latest.date)}" cy="${yAtValue(Number(latest[field]))}" r="4" fill="${multiColors[index % multiColors.length]}" class="multi-trend-marker" />`
+      : "";
+    return `<path d="${path}" class="multi-trend-line" stroke="${multiColors[index % multiColors.length]}" />${marker}`;
+  });
+
+  multiTrendSvg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  multiTrendSvg.innerHTML = [
+    ...grid,
+    ...yearGuides,
+    `<line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" class="axis-line" />`,
+    svgText(22, 24, mode === "price" ? "前复权收盘价（元）" : "区间涨跌幅（%）", "multi-axis-title"),
+    ...lines,
+    ...xLabels,
+  ].join("");
 }
 
 function axisMax(values) {
@@ -503,6 +778,11 @@ async function loadValuationDashboard() {
 
 function loadActiveDashboard() {
   periodActions.hidden = state.view !== "balance";
+  form.hidden = state.view === "multi-trend";
+  if (state.view === "multi-trend") {
+    showMultiTrendPlaceholder();
+    return;
+  }
   if (state.view === "valuation") {
     showValuationDashboard();
     return;
@@ -519,8 +799,8 @@ function loadActiveDashboard() {
 function setView(view) {
   if (view === "basic") return;
   state.view = view;
-  tabButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.view === view);
+  workbenchButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.workbenchView === view);
   });
   loadActiveDashboard();
 }
@@ -535,6 +815,21 @@ form.addEventListener("submit", (event) => {
 valuationForm.addEventListener("submit", (event) => {
   event.preventDefault();
   loadValuationDashboard();
+});
+
+multiStockForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  addStockCodeToPool();
+});
+
+multiGenerateChart.addEventListener("click", () => {
+  loadMultiTrendDashboard();
+});
+
+multiMode.addEventListener("change", () => {
+  if (multiTrendPayload) {
+    renderMultiTrend(multiTrendPayload);
+  }
 });
 
 currentButton.addEventListener("click", () => {
@@ -554,8 +849,9 @@ nextButton.addEventListener("click", () => {
   loadBalanceDashboard();
 });
 
-tabButtons.forEach((button) => {
-  button.addEventListener("click", () => setView(button.dataset.view));
+workbenchButtons.forEach((button) => {
+  button.addEventListener("click", () => setView(button.dataset.workbenchView));
 });
 
+renderStockPool();
 loadActiveDashboard();

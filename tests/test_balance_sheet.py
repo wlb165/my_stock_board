@@ -1,6 +1,8 @@
 import sys
+from datetime import date, timedelta
 import types
 import unittest
+import app
 
 from app import (
     annualization_factor,
@@ -22,6 +24,163 @@ from app import (
 
 
 class BalanceSheetDashboardTest(unittest.TestCase):
+    def test_parse_stock_codes_deduplicates_and_limits(self):
+        codes, errors = app.parse_stock_codes("002594, 600519, bad, 002594, 300750, 000333, 601318, 000858, 600000")
+        self.assertEqual(codes, ["002594", "600519", "300750", "000333", "601318", "000858"])
+        self.assertEqual(errors, [
+            {"code": "bad", "message": "Invalid stock code"},
+            {"code": "600000", "message": "Only the first 6 stock codes are used"},
+        ])
+
+    def test_period_helpers_fall_back_to_one_year(self):
+        today = date(2026, 7, 11)
+        self.assertEqual(app.normalize_comparison_period("bad"), "1y")
+        self.assertEqual(app.period_start_date("6m", today), "2026-01-11")
+        self.assertEqual(app.period_start_date("1y", today), "2025-07-11")
+        self.assertEqual(app.period_start_date("3y", today), "2023-07-11")
+        self.assertEqual(app.period_start_date("5y", today), "2021-07-11")
+
+    def test_period_helpers_use_month_end_for_invalid_leap_day_targets(self):
+        today = date(2024, 2, 29)
+        self.assertEqual(app.period_start_date("1y", today), "2023-02-28")
+        self.assertEqual(app.period_start_date("3y", today), "2021-02-28")
+        self.assertEqual(app.period_start_date("5y", today), "2019-02-28")
+
+    def test_build_comparison_series_computes_change_and_summary(self):
+        series = app.build_comparison_series("002594", "BYD", [
+            {"date": "2026-01-02", "price": 100.0},
+            {"date": "2026-01-09", "price": 110.0},
+            {"date": "2026-01-16", "price": 90.0},
+        ])
+        self.assertEqual(series["code"], "002594")
+        self.assertEqual(series["points"][1]["change_pct"], 10.0)
+        self.assertEqual(series["summary"], {
+            "latest_price": 90.0, "period_change_pct": -10.0,
+            "period_high": 110.0, "period_low": 90.0, "point_count": 3,
+        })
+
+    def test_stock_search_matches_code_and_name(self):
+        self.assertEqual(
+            app.search_stock_directory("比亚迪"),
+            [{"code": "002594", "name": "比亚迪"}],
+        )
+        self.assertEqual(
+            app.search_stock_directory("600519"),
+            [{"code": "600519", "name": "贵州茅台"}],
+        )
+
+    def test_multi_stock_trend_uses_directory_names(self):
+        original_fetch = app.fetch_resilient_daily_closes
+        try:
+            app.fetch_resilient_daily_closes = lambda code, start, end: [
+                {"date": "2026-01-02", "close": 100.0},
+                {"date": "2026-01-09", "close": 110.0},
+            ]
+            payload = app.fetch_multi_stock_trend("002594,600519", "1y", today=date(2026, 7, 11))
+        finally:
+            app.fetch_resilient_daily_closes = original_fetch
+
+        self.assertEqual(
+            [(series["code"], series["name"]) for series in payload["series"]],
+            [("002594", "比亚迪"), ("600519", "贵州茅台")],
+        )
+
+    def test_multi_stock_trend_keeps_successful_series_when_one_fetch_fails(self):
+        original_fetch = app.fetch_resilient_daily_closes
+        try:
+            def fake_fetch(code, start_date, end_date):
+                if code == "600519":
+                    raise RuntimeError("source unavailable")
+                return [
+                    {"date": "2026-01-02", "close": 100.0},
+                    {"date": "2026-01-09", "close": 110.0},
+                ]
+
+            app.fetch_resilient_daily_closes = fake_fetch
+            payload = app.fetch_multi_stock_trend(
+                "002594,600519,300750", "1y", today=date(2026, 7, 11)
+            )
+        finally:
+            app.fetch_resilient_daily_closes = original_fetch
+
+        self.assertEqual(payload["period"], "1y")
+        self.assertEqual(payload["mode_default"], "percent")
+        self.assertEqual([series["code"] for series in payload["series"]], ["002594", "300750"])
+        self.assertEqual(payload["errors"], [{"code": "600519", "message": "source unavailable"}])
+
+    def test_multi_stock_trend_uses_resilient_price_fallbacks(self):
+        original_eastmoney = app.fetch_front_adjusted_daily_closes
+        original_resilient = app.fetch_resilient_daily_closes
+        calls = []
+        try:
+            def fail_eastmoney(code, start_date, end_date):
+                calls.append("eastmoney")
+                raise RuntimeError("eastmoney unavailable")
+
+            def fake_resilient(code, start_date, end_date):
+                calls.append("resilient")
+                return [
+                    {"date": "2026-01-02", "close": 100.0},
+                    {"date": "2026-01-09", "close": 110.0},
+                ]
+
+            app.fetch_front_adjusted_daily_closes = fail_eastmoney
+            app.fetch_resilient_daily_closes = fake_resilient
+            payload = app.fetch_multi_stock_trend("002594", "1y", today=date(2026, 7, 11))
+        finally:
+            app.fetch_front_adjusted_daily_closes = original_eastmoney
+            app.fetch_resilient_daily_closes = original_resilient
+
+        self.assertEqual(calls, ["resilient"])
+        self.assertEqual(payload["series"][0]["code"], "002594")
+        self.assertEqual(payload["series"][0]["points"][-1]["change_pct"], 10.0)
+        self.assertEqual(payload["errors"], [])
+
+    def test_multi_stock_trend_uses_dense_comparison_sampling(self):
+        original_fetch = app.fetch_resilient_daily_closes
+        prices = [
+            {"date": (date(2026, 1, 1) + timedelta(days=index)).isoformat(), "close": 100.0 + index}
+            for index in range(10)
+        ]
+        try:
+            app.fetch_resilient_daily_closes = lambda code, start_date, end_date: prices
+            payload = app.fetch_multi_stock_trend("002594", "1y", today=date(2026, 7, 11))
+        finally:
+            app.fetch_resilient_daily_closes = original_fetch
+
+        self.assertEqual(len(payload["series"][0]["points"]), 10)
+        self.assertEqual(payload["series"][0]["summary"]["point_count"], 10)
+
+    def test_multi_stock_trend_route_matches_only_exact_path(self):
+        self.assertTrue(app.is_multi_stock_trend_path("/api/multi-stock-trend"))
+        self.assertFalse(app.is_multi_stock_trend_path("/api/multi-stock-trend/"))
+        self.assertFalse(app.is_multi_stock_trend_path("/api/valuation"))
+
+    def test_multi_stock_trend_handler_preserves_explicit_blank_codes(self):
+        calls = []
+        responses = []
+        original_fetch = app.fetch_multi_stock_trend
+        handler = object.__new__(app.StockBoardHandler)
+        try:
+            def fake_fetch(codes, period):
+                calls.append((codes, period))
+                return {
+                    "period": period,
+                    "mode_default": "percent",
+                    "series": [],
+                    "errors": [{"code": "", "message": "No stock codes"}],
+                }
+
+            app.fetch_multi_stock_trend = fake_fetch
+            handler.write_json = lambda payload, status=200: responses.append((payload, status))
+            handler.handle_multi_stock_trend("codes=")
+            handler.handle_multi_stock_trend("")
+        finally:
+            app.fetch_multi_stock_trend = original_fetch
+
+        self.assertEqual(calls, [("", "1y"), ("002594,600519,300750", "1y")])
+        self.assertEqual([status for _, status in responses], [502, 502])
+
     def test_valuation_route_is_wired(self):
         self.assertTrue(is_valuation_path("/api/valuation"))
         self.assertFalse(is_valuation_path("/api/revenue-price"))
@@ -504,6 +663,19 @@ class BalanceSheetDashboardTest(unittest.TestCase):
             {"date": "2024-01-10", "price": 14.0},
             {"date": "2024-01-19", "price": 15.0},
         ])
+
+    def test_comparison_price_sampling_keeps_daily_density_with_cap(self):
+        prices = [
+            {"date": (date(2026, 1, 1) + timedelta(days=index)).isoformat(), "close": 100.0 + index}
+            for index in range(240)
+        ]
+
+        sampled = app.sample_comparison_prices(prices, max_points=180)
+
+        self.assertEqual(len(sampled), 180)
+        self.assertEqual(sampled[0], {"date": "2026-01-01", "price": 100.0})
+        self.assertEqual(sampled[-1], {"date": "2026-08-28", "price": 339.0})
+        self.assertGreater(len(sampled), len(sample_weekly_prices(prices)))
 
     def test_front_adjusted_daily_closes_uses_only_eastmoney_qfq_source(self):
         import app

@@ -20,14 +20,18 @@
         </form>
       </header>
 
-      <nav class="tabs" aria-label="看板页签">
-        <button class="tab active" type="button" data-view="balance">资产负债表</button>
-        <button class="tab" type="button" data-view="trend">股价与营收</button>
-        <button class="tab" type="button" data-view="valuation">估值</button>
-        <button class="tab" type="button" data-view="basic">基本信息</button>
-      </nav>
+      <div class="app-shell">
+        <aside class="sidebar">
+          <nav class="workbench-nav" aria-label="看板页签">
+            <button class="workbench-button active" type="button" data-view="balance" data-workbench-view="balance">资产负债表</button>
+            <button class="workbench-button" type="button" data-view="trend" data-workbench-view="trend">股价与营收</button>
+            <button class="workbench-button" type="button" data-view="valuation" data-workbench-view="valuation">估值</button>
+            <button class="workbench-button" type="button" data-workbench-view="multi-trend">多股对比</button>
+          </nav>
+        </aside>
 
-      <section class="board">
+        <section class="workspace">
+          <section class="board">
         <div id="period-actions" class="period-actions">
           <button id="current-period" type="button">当期数据</button>
           <button id="prev-period" type="button">上一期</button>
@@ -37,7 +41,7 @@
         <div id="error" class="error" hidden></div>
         <div id="loading" class="loading">正在读取财报数据...</div>
 
-        <section id="chart-panel" class="chart-panel" hidden>
+        <section id="chart-panel" class="chart-panel" data-workbench-panel="balance" hidden>
           <div class="chart-title">
             <h2 id="chart-heading">资产负债表</h2>
             <p id="report-date"></p>
@@ -73,7 +77,7 @@
           </div>
         </section>
 
-        <section id="trend-panel" class="trend-panel" hidden>
+        <section id="trend-panel" class="trend-panel" data-workbench-panel="trend" hidden>
           <div class="chart-title">
             <h2 id="trend-heading">公司股价与年化营收趋势</h2>
             <p id="trend-subtitle">最近 32 个报告期；股价按周采样至最近完整交易日</p>
@@ -108,7 +112,7 @@
           </div>
         </section>
 
-        <section id="valuation-panel" class="valuation-panel" hidden>
+        <section id="valuation-panel" class="valuation-panel" data-workbench-panel="valuation" hidden>
           <form id="valuation-form" class="valuation-form">
             <label>预测年限
               <select id="forecast-years">
@@ -160,7 +164,53 @@
             <div><span>PS</span><strong id="valuation-ps">--</strong></div>
           </div>
         </section>
-      </section>
+
+            <section id="multi-trend-panel" class="multi-trend-panel" data-workbench-panel="multi-trend" hidden>
+              <form id="multi-stock-form" class="multi-stock-form">
+                <label>股票代码
+                  <input id="multi-stock-query" placeholder="输入 6 位代码" aria-label="股票代码" maxlength="6" />
+                </label>
+                <input id="multi-stock-codes" type="hidden" value="002594, 600519, 300750" />
+                <button type="submit">入池</button>
+              </form>
+
+              <div id="stock-search-results" class="stock-search-results" hidden></div>
+              <div id="stock-pool-list" class="stock-pool-list" aria-label="已入池股票"></div>
+
+              <div class="multi-controls">
+                <label>周期
+                  <select id="multi-period" aria-label="对比周期">
+                    <option value="6m">6个月</option>
+                    <option value="1y" selected>1年</option>
+                    <option value="3y">3年</option>
+                    <option value="5y">5年</option>
+                  </select>
+                </label>
+                <label>模式
+                  <select id="multi-mode" aria-label="对比模式">
+                    <option value="percent" selected>涨跌幅</option>
+                    <option value="price">绝对价格</option>
+                  </select>
+                </label>
+                <button id="multi-generate-chart" type="button">生图</button>
+              </div>
+
+              <div class="chart-title">
+                <h2>多股走势对比</h2>
+                <p>按周采样前复权收盘价，默认展示区间涨跌幅</p>
+              </div>
+
+              <div id="multi-summary" class="summary-grid multi-summary"></div>
+              <div id="multi-errors" class="multi-errors" hidden></div>
+
+              <div class="multi-trend-chart-wrap">
+                <svg id="multi-trend-svg" role="img" aria-label="多股走势对比图"></svg>
+              </div>
+              <div id="multi-legend" class="legend multi-legend"></div>
+            </section>
+          </section>
+        </section>
+      </div>
     </main>
 
     <script src="app.js"></script>

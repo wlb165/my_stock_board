@@ -125,6 +125,60 @@ class StaticAssetsTest(unittest.TestCase):
         self.assertIn('valuationForm.addEventListener("submit"', script)
         self.assertIn("loadValuationDashboard();", script)
 
+    def test_workbench_sidebar_layout_hooks_are_wired(self):
+        html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('class="sidebar"', html)
+        for view in ("balance", "trend", "valuation", "multi-trend"):
+            self.assertIn(f'data-workbench-view="{view}"', html)
+        self.assertIn('data-workbench-panel="multi-trend"', html)
+        self.assertIn("const workbenchButtons", script)
+        self.assertIn(".app-shell", styles)
+        self.assertIn(".sidebar", styles)
+
+    def test_multi_stock_comparison_view_is_wired(self):
+        html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        script = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="multi-trend-panel"', html)
+        self.assertIn('data-workbench-panel="multi-trend"', html)
+        for element_id in (
+            "multi-stock-form",
+            "multi-stock-query",
+            "multi-stock-codes",
+            "multi-generate-chart",
+            "stock-pool-list",
+            "stock-search-results",
+            "multi-period",
+            "multi-mode",
+            "multi-trend-svg",
+            "multi-legend",
+            "multi-summary",
+            "multi-errors",
+        ):
+            self.assertIn(f'id="{element_id}"', html)
+        self.assertIn('value="002594, 600519, 300750"', html)
+        for option_value in ("6m", "1y", "3y", "5y"):
+            self.assertIn(f'value="{option_value}"', html)
+        self.assertIn('value="percent"', html)
+        self.assertIn('value="price"', html)
+        self.assertIn("loadMultiTrendDashboard", script)
+        self.assertIn("renderMultiTrend", script)
+        self.assertIn("drawMultiTrendChart", script)
+        self.assertIn("addStockCodeToPool", script)
+        self.assertIn("renderStockPool", script)
+        self.assertIn("/api/multi-stock-trend", script)
+
+    def test_workbench_layout_keeps_chart_inside_workspace(self):
+        styles = (ROOT / "static" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn("width: min(1360px, calc(100% - 32px));", styles)
+        self.assertIn("grid-template-columns: 220px minmax(0, 1fr);", styles)
+        self.assertIn("overflow: hidden;", styles)
+        self.assertNotIn("min-width: 980px;", styles)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,12 @@
 from bisect import bisect_right
-from datetime import datetime, timedelta
+from calendar import monthrange
+from datetime import date, datetime, timedelta
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 import json
+import re
 import time
 
 
@@ -14,6 +16,18 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 SINA_FINANCE_URL = "https://quotes.sina.cn/cn/api/openapi.php/CompanyFinanceService.getFinanceReport2022"
 EASTMONEY_KLINE_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
 BAIDU_KLINE_URL = "https://finance.pae.baidu.com/selfselect/getstockquotation"
+
+STOCK_DIRECTORY = [
+    {"code": "002594", "name": "比亚迪"},
+    {"code": "600519", "name": "贵州茅台"},
+    {"code": "300750", "name": "宁德时代"},
+    {"code": "000333", "name": "美的集团"},
+    {"code": "601318", "name": "中国平安"},
+    {"code": "000858", "name": "五粮液"},
+    {"code": "600000", "name": "浦发银行"},
+    {"code": "002245", "name": "蔚蓝锂芯"},
+]
+STOCK_NAMES_BY_CODE = {item["code"]: item["name"] for item in STOCK_DIRECTORY}
 
 ASSET_GROUPS = [
     ("现金", ["货币资金"]),
@@ -219,6 +233,146 @@ def sample_weekly_prices(prices):
     return list(weekly.values())
 
 
+def sample_comparison_prices(prices, max_points=180):
+    daily = []
+    for item in sorted(prices, key=lambda row: row["date"]):
+        close = parse_number(item.get("close"))
+        if not close:
+            continue
+        daily.append({"date": item["date"], "price": round(close, 2)})
+
+    if len(daily) <= max_points:
+        return daily
+    if max_points <= 1:
+        return daily[-1:]
+
+    last_index = len(daily) - 1
+    indexes = sorted({
+        round(index * last_index / (max_points - 1))
+        for index in range(max_points)
+    })
+    return [daily[index] for index in indexes]
+
+
+MAX_COMPARISON_STOCKS = 6
+COMPARISON_PERIOD_DAYS = {"6m": 181, "1y": 365, "3y": 365 * 3, "5y": 365 * 5}
+
+
+def parse_stock_codes(raw_codes, limit=MAX_COMPARISON_STOCKS):
+    codes = []
+    errors = []
+    for code in re.split(r"[,\s]+", raw_codes or ""):
+        if not code:
+            continue
+        if not re.fullmatch(r"\d{6}", code):
+            errors.append({"code": code, "message": "Invalid stock code"})
+            continue
+        if code in codes:
+            continue
+        if len(codes) >= limit:
+            errors.append({"code": code, "message": f"Only the first {limit} stock codes are used"})
+            continue
+        codes.append(code)
+    return codes, errors
+
+
+def stock_name_for_code(code):
+    return STOCK_NAMES_BY_CODE.get(code, code)
+
+
+def search_stock_directory(query, limit=8):
+    keyword = (query or "").strip()
+    if not keyword:
+        return []
+    if re.fullmatch(r"\d{6}", keyword):
+        return [{"code": keyword, "name": stock_name_for_code(keyword)}]
+    keyword_lower = keyword.lower()
+    matches = [
+        item
+        for item in STOCK_DIRECTORY
+        if keyword_lower in item["code"].lower() or keyword_lower in item["name"].lower()
+    ]
+    return matches[:limit]
+
+
+def normalize_comparison_period(period):
+    return period if period in COMPARISON_PERIOD_DAYS else "1y"
+
+
+def calendar_months_before(current, months):
+    target_month = current.month - months
+    target_year = current.year + (target_month - 1) // 12
+    target_month = (target_month - 1) % 12 + 1
+    target_day = min(current.day, monthrange(target_year, target_month)[1])
+    return date(target_year, target_month, target_day)
+
+
+def period_start_date(period, today=None):
+    current = today or date.today()
+    period = normalize_comparison_period(period)
+    months = {"6m": 6, "1y": 12, "3y": 36, "5y": 60}[period]
+    return calendar_months_before(current, months).isoformat()
+
+
+def filter_prices_from(prices, start_date):
+    return [item for item in prices if item.get("date", "") >= start_date]
+
+
+def build_comparison_series(code, name, weekly_prices):
+    prices = []
+    for item in sorted(weekly_prices, key=lambda row: row["date"]):
+        price = parse_number(item.get("price"))
+        if price > 0:
+            prices.append({"date": item["date"], "price": round(price, 2)})
+    if not prices:
+        raise ValueError("No price data")
+
+    first_price = prices[0]["price"]
+    points = []
+    for item in prices:
+        change_pct = (item["price"] - first_price) / first_price * 100
+        points.append({"date": item["date"], "price": item["price"], "change_pct": round(change_pct, 2)})
+    return {
+        "code": code,
+        "name": name,
+        "points": points,
+        "summary": {
+            "latest_price": prices[-1]["price"],
+            "period_change_pct": round((prices[-1]["price"] - first_price) / first_price * 100, 2),
+            "period_high": max(item["price"] for item in prices),
+            "period_low": min(item["price"] for item in prices),
+            "point_count": len(prices),
+        },
+    }
+
+
+def fetch_multi_stock_trend(codes_raw, period, today=None):
+    normalized_period = normalize_comparison_period(period)
+    current = today or date.today()
+    start_date = period_start_date(normalized_period, current)
+    end_date = current.isoformat()
+    codes, errors = parse_stock_codes(codes_raw)
+    series = []
+
+    for code in codes:
+        try:
+            prices = fetch_resilient_daily_closes(code, start_date, end_date)
+            comparison_prices = sample_comparison_prices(filter_prices_from(prices, start_date))
+            series.append(build_comparison_series(code, stock_name_for_code(code), comparison_prices))
+        except Exception as exc:
+            errors.append({"code": code, "message": str(exc) or exc.__class__.__name__})
+
+    if not codes and not errors:
+        errors.append({"code": "", "message": "No stock codes"})
+
+    return {
+        "period": normalized_period,
+        "mode_default": "percent",
+        "series": series,
+        "errors": errors,
+    }
+
+
 def build_revenue_price_payload(code, name, reports, prices):
     revenue_points = []
     for report in sorted(reports, key=lambda item: item["report_date"]):
@@ -242,6 +396,14 @@ def build_revenue_price_payload(code, name, reports, prices):
 
 def is_valuation_path(path):
     return path == "/api/valuation"
+
+
+def is_multi_stock_trend_path(path):
+    return path == "/api/multi-stock-trend"
+
+
+def is_stock_search_path(path):
+    return path == "/api/stock-search"
 
 
 def parse_rate(params, key, default):
@@ -763,6 +925,12 @@ def build_dashboard_payload(code, name, reports, index):
 class StockBoardHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
+        if is_stock_search_path(parsed.path):
+            self.handle_stock_search(parsed.query)
+            return
+        if is_multi_stock_trend_path(parsed.path):
+            self.handle_multi_stock_trend(parsed.query)
+            return
         if parsed.path == "/api/balance-sheet":
             self.handle_balance_sheet(parsed.query)
             return
@@ -795,6 +963,21 @@ class StockBoardHandler(SimpleHTTPRequestHandler):
             self.write_json(payload)
         except Exception as exc:
             self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)
+
+    def handle_multi_stock_trend(self, query):
+        params = parse_qs(query, keep_blank_values=True)
+        codes = params.get("codes", ["002594,600519,300750"])[0]
+        period = params.get("period", ["1y"])[0]
+        try:
+            payload = fetch_multi_stock_trend(codes, period)
+            self.write_json(payload, status=200 if payload["series"] else 502)
+        except Exception as exc:
+            self.write_json({"error": str(exc) or exc.__class__.__name__}, status=502)
+
+    def handle_stock_search(self, query):
+        params = parse_qs(query, keep_blank_values=True)
+        keyword = params.get("q", [""])[0]
+        self.write_json({"query": keyword, "results": search_stock_directory(keyword)})
 
     def handle_revenue_price(self, query):
         params = parse_qs(query)

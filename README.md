@@ -11,6 +11,13 @@
 - Historical stock price is sampled weekly through the latest complete trading day, using the last available trading close in each week.
 - Daily close source: Eastmoney front-adjusted K-line (`fqt=1`) only, so the trend never mixes adjusted and unadjusted prices.
 
+## Stock Analysis Workbench
+
+- Single-stock analysis keeps the existing balance sheet, revenue and price, and valuation views.
+- Multi-stock comparison shows up to 6 stocks in one chart.
+- The comparison chart defaults to percentage change and can switch to absolute price.
+- Supported comparison ranges: 6 months, 1 year, 3 years, 5 years.
+
 
 本项目是一个本地 A 股上市公司资产负债表看板。
 
